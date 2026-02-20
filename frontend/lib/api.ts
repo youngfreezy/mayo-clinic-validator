@@ -69,8 +69,7 @@ export async function listValidations(): Promise<ValidationSummary[]> {
 }
 
 export function createSSEConnection(validationId: string): EventSource {
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  return new EventSource(`${base}/api/validate/${validationId}/stream`);
+  return new EventSource(`/api/validate/${validationId}/stream`);
 }
 
 export function agentLabel(agent: string): string {
