@@ -1,0 +1,21 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: mayo_validator_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mayo_validation
+    ports:
+      - "5433:5432"
+    volumes:
+      - mayo_validator_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mayo_validation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mayo_validator_pgdata:

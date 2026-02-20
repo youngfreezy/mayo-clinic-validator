@@ -1,0 +1,31 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.pyc
+.env
+
+# Node
+node_modules/
+.next/
+.env.local
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Test artifacts
+.pytest_cache/
+playwright-report/
+test-results/
+
+# Docker volumes (never commit data)
+postgres_data/
