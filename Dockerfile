@@ -30,7 +30,6 @@ COPY backend ./backend
 # Next.js standalone build + static assets
 COPY --from=frontend-builder /app/.next/standalone  ./frontend/
 COPY --from=frontend-builder /app/.next/static      ./frontend/.next/static
-COPY --from=frontend-builder /app/public            ./frontend/public
 
 # Process manager and web server config
 COPY nginx.conf       /etc/nginx/nginx.conf
