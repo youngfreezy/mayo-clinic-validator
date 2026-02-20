@@ -8,6 +8,7 @@ This is a single LLM call with retrieved context (rather than full ReAct loop)
 to keep it deterministic and avoid infinite tool loops inside a Send branch.
 """
 
+import asyncio
 import json
 
 from langchain_openai import ChatOpenAI
@@ -77,7 +78,9 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
     references_text = "No references available in knowledge base."
     try:
         retriever = get_retriever(k=5)
-        docs = await retriever.ainvoke(query)
+        # PGVector was initialized with a sync connection string, so run
+        # the sync retriever in a thread pool to avoid blocking the event loop.
+        docs = await asyncio.to_thread(retriever.invoke, query)
         if docs:
             references_text = "\n\n---\n\n".join(
                 f"[Ref {i+1}] {doc.page_content}" for i, doc in enumerate(docs)

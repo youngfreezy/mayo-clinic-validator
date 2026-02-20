@@ -21,6 +21,14 @@ from config.settings import settings
 SYSTEM_PROMPT = """You are a medical web content metadata specialist for Mayo Clinic.
 Evaluate the metadata quality of a Mayo Clinic web page and respond ONLY with valid JSON.
 
+IMPORTANT CONTEXT: The metadata provided was extracted from the initial server-side rendered (SSR)
+HTML response — i.e. the raw HTML returned before any client-side JavaScript runs. Mayo Clinic pages
+are Next.js applications; some meta tags (especially og:description and meta description) may be
+populated only after client-side hydration and will therefore appear missing or empty in the SSR
+snapshot. When reporting issues with missing or empty tags, note explicitly that the tag was absent
+in the SSR HTML and may be injected client-side, which means search engine crawlers that rely on
+the raw HTML response may also not see them.
+
 Score criteria (0.0 to 1.0):
 - 1.0: All metadata complete and optimal
 - 0.8–0.9: Minor issues (slightly short/long description, missing one OG tag)
