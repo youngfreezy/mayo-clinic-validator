@@ -55,6 +55,7 @@ Respond with this exact JSON structure:
 {{
   "passed": true or false,
   "score": 0.0 to 1.0,
+  "passed_checks": ["list of compliance checks that passed, e.g. 'No absolute cure claims found'"],
   "issues": ["list of specific compliance violations with quoted problematic text where possible"],
   "recommendations": ["list of specific language changes or additions needed"]
 }}"""
@@ -101,6 +102,7 @@ async def run_compliance_agent(state: ValidationState) -> dict:
             agent="compliance",
             passed=result.get("passed", False),
             score=float(result.get("score", 0.0)),
+            passed_checks=result.get("passed_checks", []),
             issues=result.get("issues", []),
             recommendations=result.get("recommendations", []),
         )

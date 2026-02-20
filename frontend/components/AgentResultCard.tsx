@@ -48,6 +48,22 @@ export function AgentResultCard({ finding }: Props) {
         />
       </div>
 
+      {finding.passed_checks?.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
+            Passed Checks
+          </p>
+          <ul className="space-y-1">
+            {finding.passed_checks.map((check, i) => (
+              <li key={i} className="flex gap-2 text-xs text-gray-700">
+                <span className="text-green-500 flex-shrink-0 mt-0.5">✓</span>
+                <span>{check}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {finding.issues.length > 0 && (
         <div className="mb-3">
           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">

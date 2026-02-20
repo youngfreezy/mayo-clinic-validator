@@ -33,7 +33,7 @@ export default function ResultsPage() {
   useEffect(() => {
     if (!id) return;
 
-    // Try to get URL from backend state (polling once on mount)
+    // Fetch current state first; only open SSE if not already in a terminal state.
     fetch(`/api/validate/${id}`)
       .then((r) => r.json())
       .then((s) => {
@@ -41,8 +41,9 @@ export default function ResultsPage() {
         if (s.status) setStatus(s.status);
         if (s.overall_score !== null) setOverallScore(s.overall_score);
         if (s.overall_passed !== null) setOverallPassed(s.overall_passed);
-        // If already in terminal state (e.g. page refresh)
+
         if (["approved", "rejected", "failed"].includes(s.status)) {
+          // Already done — restore full state without opening SSE
           setFinalStatus(s.status);
           if (s.findings?.length) setFindings(s.findings);
           const cAgents = new Set<string>(s.findings?.map((f: AgentFinding) => f.agent) || []);
@@ -50,80 +51,91 @@ export default function ResultsPage() {
           const passed: Record<string, boolean> = {};
           (s.findings || []).forEach((f: AgentFinding) => { passed[f.agent] = f.passed; });
           setAgentPassed(passed);
-          return; // Don't open SSE if already done
+          return; // skip SSE
         }
+
+        if (s.status === "awaiting_human" && s.findings?.length) {
+          // Graph is paused at HITL — restore agent findings and show HITL panel
+          setFindings(s.findings);
+          const cAgents = new Set<string>(s.findings.map((f: AgentFinding) => f.agent));
+          setCompletedAgents(cAgents);
+          const passed: Record<string, boolean> = {};
+          s.findings.forEach((f: AgentFinding) => { passed[f.agent] = f.passed; });
+          setAgentPassed(passed);
+          setHitlData({ overall_score: s.overall_score, overall_passed: s.overall_passed, findings: s.findings });
+          setShowHITL(true);
+          setStatus("awaiting_human");
+          // Still open SSE so the done event arrives after they approve/reject
+        }
+
+        // Open SSE for in-progress or awaiting_human validations
+        const es = createSSEConnection(id);
+        esRef.current = es;
+
+        es.onmessage = handleSSEMessage(es);
+        es.onerror = () => { if (finalStatus) es.close(); };
       })
-      .catch(() => {});
+      .catch(() => {
+        // Backend unreachable — still try SSE
+        const es = createSSEConnection(id);
+        esRef.current = es;
+        es.onmessage = handleSSEMessage(es);
+      });
 
-    const es = createSSEConnection(id);
-    esRef.current = es;
+    function handleSSEMessage(es: EventSource) {
+      return (e: MessageEvent) => {
+        let event: SSEEvent;
+        try { event = JSON.parse(e.data); } catch { return; }
+        if (event.type === "ping") return;
 
-    es.onmessage = (e: MessageEvent) => {
-      let event: SSEEvent;
-      try {
-        event = JSON.parse(e.data);
-      } catch {
-        return;
-      }
+        if (event.type === "status") setStatus(event.data.status);
 
-      if (event.type === "ping") return;
-
-      if (event.type === "status") {
-        setStatus(event.data.status);
-        if ((event.data as { validation_id?: string }).validation_id) {
-          // Initial scraping event might include url indirectly — no-op here
+        if (event.type === "agent_complete") {
+          const { agent, finding } = event.data;
+          setCompletedAgents((prev) => new Set([...prev, agent]));
+          if (finding) {
+            setFindings((prev) => {
+              const exists = prev.some((f) => f.agent === agent);
+              return exists ? prev : [...prev, finding];
+            });
+            setAgentPassed((prev) => ({ ...prev, [agent]: finding.passed }));
+          }
         }
-      }
 
-      if (event.type === "agent_complete") {
-        const { agent, finding } = event.data;
-        setCompletedAgents((prev) => new Set([...prev, agent]));
-        if (finding) {
-          setFindings((prev) => {
-            // Avoid duplicates on SSE reconnect
-            const exists = prev.some((f) => f.agent === agent);
-            return exists ? prev : [...prev, finding];
-          });
-          setAgentPassed((prev) => ({ ...prev, [agent]: finding.passed }));
+        if (event.type === "hitl") {
+          const { overall_score, overall_passed, findings: f } = event.data;
+          setOverallScore(overall_score);
+          setOverallPassed(overall_passed);
+          setFindings(f);
+          const cAgents = new Set<string>(f.map((fi) => fi.agent));
+          setCompletedAgents(cAgents);
+          const passed: Record<string, boolean> = {};
+          f.forEach((fi) => { passed[fi.agent] = fi.passed; });
+          setAgentPassed(passed);
+          setHitlData({ overall_score, overall_passed, findings: f });
+          setShowHITL(true);
+          setStatus("awaiting_human");
         }
-      }
 
-      if (event.type === "hitl") {
-        const { overall_score, overall_passed, findings: f } = event.data;
-        setOverallScore(overall_score);
-        setOverallPassed(overall_passed);
-        setFindings(f);
-        const cAgents = new Set<string>(f.map((fi) => fi.agent));
-        setCompletedAgents(cAgents);
-        const passed: Record<string, boolean> = {};
-        f.forEach((fi) => { passed[fi.agent] = fi.passed; });
-        setAgentPassed(passed);
-        setHitlData({ overall_score, overall_passed, findings: f });
-        setShowHITL(true);
-        setStatus("awaiting_human");
-      }
+        if (event.type === "done") {
+          setFinalStatus(event.data.status);
+          setStatus(event.data.status);
+          setShowHITL(false);
+          es.close();
+        }
 
-      if (event.type === "done") {
-        setFinalStatus(event.data.status);
-        setStatus(event.data.status);
-        setShowHITL(false);
-        es.close();
-      }
+        if (event.type === "error") {
+          setErrorMsg(event.data.message);
+          setStatus("failed");
+          es.close();
+        }
+      };
+    }
 
-      if (event.type === "error") {
-        setErrorMsg(event.data.message);
-        setStatus("failed");
-        es.close();
-      }
-    };
-
-    es.onerror = () => {
-      if (finalStatus) return; // Already done
-      // Don't set error on normal close
-    };
+    // No SSE opened here — done inside the fetch .then() above
 
     return () => {
-      es.close();
+      esRef.current?.close();
     };
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 

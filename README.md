@@ -195,51 +195,75 @@ The `Annotated` reducers are **mandatory** for the `Send` API parallel fan-out. 
 ## Quick Start
 
 ### Prerequisites
-- Docker Desktop running
-- Python 3.11 (`/opt/homebrew/bin/python3.11`)
-- Node 20 (`/opt/homebrew/opt/node@20/bin/node`)
-- OpenAI API key (already set in `backend/.env`)
+- **Docker Desktop** — running before anything else
+- **Python 3.11** — install with `brew install python@3.11` (available at `/opt/homebrew/bin/python3.11`)
+- **Node 20** — install with `brew install node@20` (available at `/opt/homebrew/opt/node@20/bin/node`)
+- **OpenAI API key** — already set in `backend/.env`
 
-### Backend
+> **Ports used:** PostgreSQL on `5433`, FastAPI on `8000`, Next.js on `3000`.
+
+---
+
+### Step 1 — Database (one-time setup)
 
 ```bash
 cd backend
 
-# Create virtualenv (Python 3.11 required)
+# Start PostgreSQL + pgvector container on port 5433
+docker compose up -d
+
+# Create virtualenv with Python 3.11
 /opt/homebrew/bin/python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Start PostgreSQL + pgvector on port 5433
-docker compose up -d
-
-# Seed knowledge base (one time, calls OpenAI Embeddings API)
+# Seed the RAG knowledge base (calls OpenAI Embeddings — run once)
 python scripts/seed_knowledge.py
-
-# Start API server
-uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### Frontend
+### Step 2 — Backend (Terminal 1)
+
+```bash
+cd backend
+source venv/bin/activate          # activate the Python 3.11 venv
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Verify: http://localhost:8000/api/health → {"status":"ok"}
+```
+
+> **Note:** Run uvicorn **without** `--workers` — MemorySaver (HITL checkpointer) is single-process only.
+
+### Step 3 — Frontend (Terminal 2)
 
 ```bash
 cd frontend
-
-# Use Node 20
-export PATH="/opt/homebrew/opt/node@20/bin:$PATH"
-npm install
+export PATH="/opt/homebrew/opt/node@20/bin:$PATH"   # use Node 20
+npm install          # first time only
 npm run dev
 # → http://localhost:3000
 ```
 
+### Step 4 — Validate on the UI
+
+1. Open **http://localhost:3000**
+2. Paste any `mayoclinic.org` URL (e.g. `https://www.mayoclinic.org/diseases-conditions/diabetes/symptoms-causes/syc-20371444`)
+3. Click **Validate**
+4. Watch the 4 agents complete in real time on the results page
+5. Click **Approve for Publication** or **Reject** in the Human Review panel
+
+Validation history is persisted to Postgres and survives backend restarts.
+
+---
+
 ### Run Tests
 
 ```bash
-# Backend unit tests (no network calls)
+# Backend unit tests (no network calls, no OpenAI)
 cd backend
+source venv/bin/activate
 /opt/homebrew/bin/python3.11 -m pytest tests/test_scraper.py tests/test_schemas.py -v
 
-# Frontend Playwright tests (requires both servers running)
+# Frontend Playwright E2E tests (requires both servers running on 8000 + 3000)
 cd frontend
 PATH="/opt/homebrew/opt/node@20/bin:$PATH" npx playwright test
 ```

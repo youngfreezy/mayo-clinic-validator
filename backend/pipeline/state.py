@@ -11,6 +11,7 @@ class AgentFinding(BaseModel):
     agent: str
     passed: bool
     score: float = Field(ge=0.0, le=1.0)
+    passed_checks: List[str] = []
     issues: List[str] = []
     recommendations: List[str] = []
 

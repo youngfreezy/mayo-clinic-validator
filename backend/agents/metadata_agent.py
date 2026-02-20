@@ -50,6 +50,7 @@ Respond with this exact JSON structure:
 {{
   "passed": true or false,
   "score": 0.0 to 1.0,
+  "passed_checks": ["list of checks that passed, e.g. 'Canonical URL present and correct'"],
   "issues": ["list of specific issues found"],
   "recommendations": ["list of specific fixes"]
 }}"""
@@ -107,6 +108,7 @@ async def run_metadata_agent(state: ValidationState) -> dict:
             agent="metadata",
             passed=result.get("passed", False),
             score=float(result.get("score", 0.0)),
+            passed_checks=result.get("passed_checks", []),
             issues=result.get("issues", []),
             recommendations=result.get("recommendations", []),
         )

@@ -2,6 +2,7 @@ export interface AgentFinding {
   agent: string;
   passed: boolean;
   score: number;
+  passed_checks: string[];
   issues: string[];
   recommendations: string[];
 }

@@ -17,11 +17,17 @@ SSE + HITL Architecture:
   - EventSource stays open (no "done" event received)
   - POST /decide spawns _resume_pipeline() which reuses the same queue
   - "done" event closes the EventSource on the frontend
+
+Persistence:
+  - validation_store dict = in-memory cache for active/recent validations
+  - Postgres validations table = durable history (survives restarts)
+  - upsert_validation() is called at every meaningful state transition
 """
 
 import asyncio
 import json
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Dict, Any
 
@@ -34,11 +40,25 @@ from sse_starlette.sse import EventSourceResponse
 from config.settings import settings
 from models.schemas import ValidateRequest, HumanDecisionRequest
 from pipeline.graph import validation_graph
+import db
+
+
+# ---------------------------------------------------------------------------
+# App lifecycle — open/close DB pool
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.init_pool()
+    yield
+    await db.close_pool()
+
 
 app = FastAPI(
     title="Mayo Clinic Content Validator",
     description="Multi-agent LangGraph content validation with HITL",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -50,17 +70,16 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# In-memory stores
+# In-memory stores (transient — for active pipeline coordination)
 # ---------------------------------------------------------------------------
 
-# Stores the latest ValidationState snapshot for each validation
+# Latest ValidationState snapshot for each active validation (in-memory cache)
 validation_store: Dict[str, Dict[str, Any]] = {}
 
 # SSE queue registry: validation_id → asyncio.Queue of event dicts
-# Queue events: {"type": "status"|"agent_complete"|"hitl"|"done"|"error"|"ping", "data": {...}}
 sse_queues: Dict[str, asyncio.Queue] = {}
 
-# Track which agent_complete events have already been emitted (to avoid duplicates from astream)
+# Track which agent_complete events have already been emitted (avoid duplicates)
 emitted_agents: Dict[str, set] = {}
 
 
@@ -97,6 +116,7 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
     Runs the LangGraph validation pipeline in a background task.
     Streams typed events to the SSE queue.
     Exits after emitting the 'hitl' event (graph pauses at interrupt()).
+    Persists state to Postgres at each meaningful lifecycle point.
     """
     config = RunnableConfig(configurable={"thread_id": vid})
     emitted_agents[vid] = set()
@@ -109,6 +129,7 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
         ):
             # chunk is the full ValidationState after each node completes
             validation_store[vid] = chunk
+            await db.upsert_validation(chunk)
 
             current_status = chunk.get("status", "")
 
@@ -121,7 +142,6 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
             for agent_name, agent_status in agent_statuses.items():
                 if agent_status == "done" and agent_name not in emitted_agents[vid]:
                     emitted_agents[vid].add(agent_name)
-                    # Find the corresponding finding
                     findings = chunk.get("findings", [])
                     finding = next(
                         (f for f in findings if f.agent == agent_name), None
@@ -147,7 +167,6 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                     },
                 })
                 # Graph is now suspended. Exit background task.
-                # The SSE queue stays alive; _resume_pipeline will push "done" later.
                 return
 
             # Emit error status
@@ -161,7 +180,9 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                 return
 
     except Exception as e:
-        validation_store.get(vid, {})["status"] = "failed"
+        if vid in validation_store:
+            validation_store[vid]["status"] = "failed"
+            await db.upsert_validation(validation_store[vid])
         await q.put({"type": "error", "data": {"message": str(e)}})
         await q.put({"type": "done", "data": {"status": "failed"}})
 
@@ -180,10 +201,6 @@ async def _resume_pipeline(
     config = RunnableConfig(configurable={"thread_id": vid})
 
     try:
-        # CRITICAL: Resume with Command(resume=...) NOT a plain dict.
-        # Passing a plain dict would restart the graph from scratch.
-        # Command(resume=value) tells LangGraph to resume from the interrupt() point,
-        # and interrupt() inside human_gate_node returns this value.
         resume_command = Command(resume={
             "human_decision": decision,
             "human_feedback": feedback,
@@ -194,6 +211,7 @@ async def _resume_pipeline(
             resume_command, config=config, stream_mode="values"
         ):
             validation_store[vid] = chunk
+            await db.upsert_validation(chunk)
 
         final_status = validation_store.get(vid, {}).get("status", "unknown")
         await q.put({"type": "done", "data": {"status": final_status}})
@@ -218,6 +236,7 @@ async def start_validation(
 
     state = _initial_state(vid, req.url, req.requested_by or "web-user")
     validation_store[vid] = state
+    await db.upsert_validation(state)
 
     background_tasks.add_task(_run_pipeline, vid, state, q)
 
@@ -232,7 +251,7 @@ async def stream_validation(vid: str) -> EventSourceResponse:
     Sends a "ping" keepalive every 25 seconds to prevent proxy timeouts.
     """
     if vid not in sse_queues:
-        raise HTTPException(status_code=404, detail="Validation not found")
+        raise HTTPException(status_code=404, detail="Validation not found or already complete")
 
     q = sse_queues[vid]
 
@@ -244,7 +263,6 @@ async def stream_validation(vid: str) -> EventSourceResponse:
                 if event["type"] in ("done", "error"):
                     break
             except asyncio.TimeoutError:
-                # Send keepalive ping to prevent Nginx/proxy from closing connection
                 yield {"data": json.dumps({"type": "ping"})}
 
     return EventSourceResponse(event_generator())
@@ -252,21 +270,27 @@ async def stream_validation(vid: str) -> EventSourceResponse:
 
 @app.get("/api/validate/{vid}")
 async def get_validation(vid: str) -> Dict[str, Any]:
-    """Get current validation state. Useful as a polling fallback."""
+    """
+    Get current validation state.
+    Checks in-memory cache first; falls back to Postgres for completed/restarted runs.
+    """
+    # In-memory cache hit (active pipeline)
     state = validation_store.get(vid)
-    if not state:
-        raise HTTPException(status_code=404, detail="Validation not found")
+    if state:
+        result = dict(state)
+        findings = result.get("findings", [])
+        result["findings"] = [
+            f.model_dump() if hasattr(f, "model_dump") else f for f in findings
+        ]
+        result.pop("messages", None)
+        result.pop("scraped_content", None)
+        return result
 
-    # Serialize findings from Pydantic models to dicts
-    result = dict(state)
-    findings = result.get("findings", [])
-    result["findings"] = [
-        f.model_dump() if hasattr(f, "model_dump") else f for f in findings
-    ]
-    # Remove non-serializable keys
-    result.pop("messages", None)
-    result.pop("scraped_content", None)
-    return result
+    # DB fallback (after restart or for old validations)
+    row = await db.get_validation(vid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Validation not found")
+    return row
 
 
 @app.post("/api/validate/{vid}/decide")
@@ -277,7 +301,8 @@ async def human_decision(
     Resume the validation graph after human review.
     The graph was suspended at interrupt() in human_gate_node.
     """
-    state = validation_store.get(vid)
+    # Check memory first, then DB
+    state = validation_store.get(vid) or await db.get_validation(vid)
     if not state:
         raise HTTPException(status_code=404, detail="Validation not found")
 
@@ -288,7 +313,6 @@ async def human_decision(
             detail=f"Cannot submit decision: current status is '{current_status}'",
         )
 
-    # Ensure we have a queue for the resumed SSE stream
     if vid not in sse_queues:
         sse_queues[vid] = asyncio.Queue()
     q = sse_queues[vid]
@@ -306,21 +330,9 @@ async def human_decision(
 
 
 @app.get("/api/validations")
-async def list_validations() -> list:
-    """Returns up to 20 most recent validations for the home page list."""
-    items = []
-    for state in validation_store.values():
-        item = {
-            "validation_id": state.get("validation_id"),
-            "url": state.get("url"),
-            "status": state.get("status"),
-            "overall_score": state.get("overall_score"),
-            "overall_passed": state.get("overall_passed"),
-            "created_at": state.get("created_at"),
-        }
-        items.append(item)
-
-    return sorted(items, key=lambda s: s.get("created_at", ""), reverse=True)[:20]
+async def list_validations_endpoint() -> list:
+    """Returns up to 20 most recent validations from Postgres (survives restarts)."""
+    return await db.list_validations(limit=20)
 
 
 @app.get("/api/health")

@@ -49,6 +49,7 @@ Respond with this exact JSON structure:
 {{
   "passed": true or false,
   "score": 0.0 to 1.0,
+  "passed_checks": ["list of claims verified as accurate against references, e.g. 'Insulin deficiency as cause of Type 1 diabetes confirmed'"],
   "issues": ["list of specific factual inaccuracies or unsupported claims"],
   "recommendations": ["list of specific corrections or additions needed"]
 }}"""
@@ -115,6 +116,7 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
             agent="accuracy",
             passed=result.get("passed", False),
             score=float(result.get("score", 0.0)),
+            passed_checks=result.get("passed_checks", []),
             issues=result.get("issues", []),
             recommendations=result.get("recommendations", []),
         )
