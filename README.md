@@ -1,3 +1,12 @@
+---
+title: Mayo Clinic Content Validator
+emoji: 🏥
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # Mayo Clinic Content Validator
 
 A multi-agent LangGraph content validation platform with human-in-the-loop (HITL) approval. Input any Mayo Clinic URL and get automated compliance, editorial, and medical accuracy validation with real-time SSE updates and a Next.js review dashboard.

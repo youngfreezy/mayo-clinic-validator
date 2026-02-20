@@ -27,17 +27,24 @@ async function delay(ms) {
 (async () => {
   console.log("Launching browser…");
 
+  // Use a large fixed viewport that fills the screen
+  const W = 1800, H = 1024;
+
   const browser = await chromium.launch({
-    headless: false,        // show the browser so the recording looks natural
-    slowMo: 80,             // slight slow-down for readability
-    args: ["--start-maximized"],
+    headless: false,
+    slowMo: 60,
+    args: [
+      `--window-size=${W},${H}`,
+      "--window-position=0,0",
+      "--start-fullscreen",
+    ],
   });
 
   const ctx = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: W, height: H },
     recordVideo: {
       dir: VIDEO_DIR,
-      size: { width: 1440, height: 900 },
+      size: { width: W, height: H },
     },
   });
 
@@ -47,62 +54,70 @@ async function delay(ms) {
     // ── 1. Home page ────────────────────────────────────────────────────────
     console.log("Step 1: Home page");
     await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
-    await delay(1500);
+    await delay(3000);   // pause so viewers can read the dashboard
 
     // ── 2. Open architecture modal ──────────────────────────────────────────
     console.log("Step 2: Architecture modal");
     await page.getByTitle("View architecture diagram").click();
-    await delay(3000);
+    await delay(4000);   // let modal fully animate in and viewers read it
 
-    // scroll down inside the modal to show RAG section
+    // scroll down inside the modal to show the RAG section
     const modal = page.locator(".overflow-y-auto").first();
-    await modal.evaluate((el) => el.scrollBy({ top: 300, behavior: "smooth" }));
-    await delay(2000);
-    await modal.evaluate((el) => el.scrollBy({ top: -300, behavior: "smooth" }));
-    await delay(1000);
+    await modal.evaluate((el) => el.scrollBy({ top: 350, behavior: "smooth" }));
+    await delay(3500);
+    await modal.evaluate((el) => el.scrollBy({ top: -350, behavior: "smooth" }));
+    await delay(2500);
 
-    // close modal
-    await page.keyboard.press("Escape");
-    await delay(1000);
+    // click the explicit X close button (more visible than Escape)
+    await page.locator("button[class*='hover:text-gray-600']").first().click();
+    await delay(2000);   // wait for modal to fully close
 
     // ── 3. Fill URL and validate ────────────────────────────────────────────
     console.log("Step 3: Submit URL for validation");
     const input = page.getByLabel("Mayo Clinic URL");
     await input.click();
+    await delay(500);
     await input.fill(MAYO_URL);
-    await delay(800);
+    await delay(2000);   // pause so URL is readable
     await page.getByRole("button", { name: "Validate" }).click();
 
     // ── 4. Results page — watch agents run ──────────────────────────────────
     console.log("Step 4: Waiting for results page…");
     await page.waitForURL(/\/results\/[0-9a-f-]{36}/, { timeout: 15000 });
-    await delay(1500);
+    await delay(3000);   // show the initial pipeline progress state
 
     console.log("Step 5: Waiting for agents to complete (up to 3 min)…");
     await page.getByText("Human Review Required").waitFor({ timeout: 200000 });
+    await delay(4000);   // let viewers read all 4 agent result cards
+
+    // scroll down slowly so all agent cards are visible
+    await page.evaluate(() => window.scrollBy({ top: 400, behavior: "smooth" }));
+    await delay(2500);
+    await page.evaluate(() => window.scrollBy({ top: -400, behavior: "smooth" }));
     await delay(2000);
 
     // ── 5. HITL — approve ───────────────────────────────────────────────────
     console.log("Step 6: Approving content");
     const feedback = page.getByPlaceholder("Add any notes about your decision...");
     await feedback.click();
+    await delay(500);
     await feedback.fill("Looks good — approved for demo recording.");
-    await delay(1000);
+    await delay(2000);   // pause so feedback text is readable
     await page.getByRole("button", { name: /Approve for Publication/i }).click();
 
     // wait for approved state
     await page.getByText(/approved for publication/i).waitFor({ timeout: 30000 });
-    await delay(2500);
+    await delay(4000);   // linger on the success state
 
     // ── 6. Back to dashboard ─────────────────────────────────────────────────
     console.log("Step 7: Back to dashboard");
     await page.getByText("Back to Dashboard").click();
     await page.waitForURL("http://localhost:3000", { timeout: 10000 });
-    await delay(2000);
+    await delay(3000);
 
-    // scroll down to show history table
+    // scroll down to show the validation history table
     await page.evaluate(() => window.scrollTo({ top: 600, behavior: "smooth" }));
-    await delay(2000);
+    await delay(4000);   // let viewers read the history table
 
     console.log("Recording complete — closing browser.");
   } catch (err) {
@@ -121,7 +136,7 @@ async function delay(ms) {
     if (files.length > 0) {
       const src = path.join(VIDEO_DIR, files[0].name);
       const dst = path.join(VIDEO_DIR, OUT_NAME);
-      fs.renameSync(src, dst);
+      if (src !== dst) fs.renameSync(src, dst);
       console.log(`\nVideo saved to: ${dst}`);
     } else {
       console.log("No video file found in output dir.");
