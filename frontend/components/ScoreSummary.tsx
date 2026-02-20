@@ -77,6 +77,19 @@ export function ScoreSummary({ overallScore, overallPassed, status, url }: Props
           </div>
         )}
       </div>
+
+      {overallScore !== null && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            How scoring works
+          </p>
+          <p className="mt-1 text-xs text-gray-700">
+            Overall score is the average of Metadata, Editorial, Compliance, and Accuracy agent scores.
+            The content-level pass/fail flag requires all four agents to pass, then a human reviewer makes
+            the final approve/reject decision.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

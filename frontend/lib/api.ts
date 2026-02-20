@@ -83,6 +83,49 @@ export function agentLabel(agent: string): string {
   return labels[agent] || agent;
 }
 
+export interface AgentMethodology {
+  agentType: string;
+  model: string;
+  methodology: string;
+}
+
+const AGENT_METHODOLOGY: Record<string, AgentMethodology> = {
+  metadata: {
+    agentType: "Metadata Agent",
+    model: "Rule-based parser",
+    methodology:
+      "Validates SSR HTML metadata: title, description, canonical URL, OpenGraph, and JSON-LD structure.",
+  },
+  editorial: {
+    agentType: "Editorial Agent",
+    model: "LLM evaluation + structure checks",
+    methodology:
+      "Reviews readability, heading hierarchy, sourcing/attribution, and review-date signals for editorial quality.",
+  },
+  compliance: {
+    agentType: "Compliance Agent",
+    model: "Policy prompt + deterministic checks",
+    methodology:
+      "Flags unsupported medical claims, missing disclaimers, and language that may violate healthcare communication rules.",
+  },
+  accuracy: {
+    agentType: "Accuracy Agent",
+    model: "RAG fact-checking",
+    methodology:
+      "Compares extracted page claims with trusted Mayo knowledge chunks and scores factual alignment and contradictions.",
+  },
+};
+
+export function agentMethodology(agent: string): AgentMethodology {
+  return (
+    AGENT_METHODOLOGY[agent] || {
+      agentType: `${agentLabel(agent)} Agent`,
+      model: "Specialized evaluation",
+      methodology: "Runs targeted quality checks for this validation stage.",
+    }
+  );
+}
+
 export function scoreColor(score: number): string {
   if (score >= 0.85) return "text-green-600";
   if (score >= 0.7) return "text-yellow-600";

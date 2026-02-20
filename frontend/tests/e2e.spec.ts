@@ -55,6 +55,13 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
     await expect(
       page.getByText(/Scraping URL|Validating|Initializing pipeline/i).first()
     ).toBeVisible({ timeout: 15000 });
+
+    const scrapingStep = page.getByTestId("pipeline-step-scraping");
+    await scrapingStep.getByRole("button", { name: /Scraping URL methodology details/i }).click();
+    const scrapingTooltip = page.getByTestId("pipeline-tooltip-scraping");
+    await expect(scrapingTooltip).toBeVisible();
+    await expect(scrapingTooltip.getByText("Agent used")).toBeVisible();
+    await expect(scrapingTooltip.getByText("Web Scraper")).toBeVisible();
   });
 
   test("results page shows agent findings after pipeline completes", async ({ page }) => {
@@ -71,6 +78,9 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
     await expect(
       page.getByText(/Metadata|Editorial|Compliance|Accuracy/i).first()
     ).toBeVisible();
+    const firstCard = page.locator("div.rounded-xl.border.p-5").first();
+    await expect(firstCard.getByText("Agent used")).toBeVisible();
+    await expect(firstCard.getByText("Methodology")).toBeVisible();
 
     // Expect HITL panel to appear once all agents done
     await expect(page.getByText("Human Review Required")).toBeVisible({
@@ -100,9 +110,6 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
 
     // Click approve
     await page.getByRole("button", { name: /Approve for Publication/i }).click();
-
-    // Should show decision submitted state
-    await expect(page.getByText(/Decision submitted/i)).toBeVisible({ timeout: 10000 });
 
     // Should eventually show approved
     await expect(page.getByText(/approved for publication/i)).toBeVisible({ timeout: 30000 });

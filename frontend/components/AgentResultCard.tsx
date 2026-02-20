@@ -1,6 +1,6 @@
 "use client";
 
-import { AgentFinding, agentLabel, scoreColor, scoreBg } from "@/lib/api";
+import { AgentFinding, agentLabel, agentMethodology, scoreColor, scoreBg } from "@/lib/api";
 
 interface Props {
   finding: AgentFinding;
@@ -8,6 +8,7 @@ interface Props {
 
 export function AgentResultCard({ finding }: Props) {
   const pct = Math.round(finding.score * 100);
+  const method = agentMethodology(finding.agent);
 
   return (
     <div className={`rounded-xl border p-5 ${scoreBg(finding.score)}`}>
@@ -46,6 +47,14 @@ export function AgentResultCard({ finding }: Props) {
           }`}
           style={{ width: `${pct}%` }}
         />
+      </div>
+
+      <div className="mb-4 rounded-lg border border-gray-200 bg-white/70 px-3 py-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Agent used</p>
+        <p className="mt-0.5 text-xs font-medium text-gray-900">{method.agentType}</p>
+        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Methodology</p>
+        <p className="mt-0.5 text-xs text-gray-700">{method.methodology}</p>
+        <p className="mt-2 text-[11px] text-gray-500">Model: {method.model}</p>
       </div>
 
       {finding.passed_checks?.length > 0 && (
