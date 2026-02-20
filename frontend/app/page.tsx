@@ -1,5 +1,6 @@
 import { URLInputForm } from "@/components/URLInputForm";
 import { ValidationHistoryTable } from "@/components/ValidationHistoryTable";
+import { PipelineArchitectureModal } from "@/components/PipelineArchitectureModal";
 
 export default function HomePage() {
   return (
@@ -14,9 +15,12 @@ export default function HomePage() {
 
       {/* Agent pipeline diagram */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
-          Pipeline Architecture
-        </p>
+        <div className="flex items-center mb-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Pipeline Architecture
+          </p>
+          <PipelineArchitectureModal />
+        </div>
         <div className="flex items-center gap-2 flex-wrap text-xs">
           {[
             "URL Input",

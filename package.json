@@ -1,0 +1,8 @@
+{
+  "name": "mayo-clinic-validator",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start.js"
+  }
+}
