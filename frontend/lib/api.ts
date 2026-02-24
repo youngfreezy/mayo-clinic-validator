@@ -69,7 +69,15 @@ export async function listValidations(): Promise<ValidationSummary[]> {
 }
 
 export function createSSEConnection(validationId: string): EventSource {
-  return new EventSource(`/api/validate/${validationId}/stream`);
+  // In development, connect directly to the FastAPI backend to avoid
+  // Next.js rewrite proxy buffering SSE events. In production, nginx
+  // handles SSE with proxy_buffering off, so the relative URL works.
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ||
+    (typeof window !== "undefined" && window.location.port === "3000"
+      ? "http://localhost:8000"
+      : "");
+  return new EventSource(`${base}/api/validate/${validationId}/stream`);
 }
 
 export function agentLabel(agent: string): string {
