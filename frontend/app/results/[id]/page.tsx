@@ -9,10 +9,89 @@ import {
   RoutingInfo,
   JudgeRecommendation,
 } from "@/lib/api";
+import { AnimatePresence, motion } from "framer-motion";
+import Skeleton from "react-loading-skeleton";
+import "react-loading-skeleton/dist/skeleton.css";
 import { ValidationProgress } from "@/components/ValidationProgress";
 import { AgentResultCard } from "@/components/AgentResultCard";
 import { HITLPanel } from "@/components/HITLPanel";
 import { ScoreSummary } from "@/components/ScoreSummary";
+
+/* ------------------------------------------------------------------ */
+/* Skeleton placeholders — shown before data arrives                   */
+/* ------------------------------------------------------------------ */
+
+function AgentCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Skeleton width={112} height={16} />
+          <Skeleton width={48} height={20} borderRadius={9999} />
+        </div>
+        <Skeleton width={56} height={28} />
+      </div>
+      <Skeleton height={6} borderRadius={9999} />
+      <div className="space-y-2 pt-1">
+        <Skeleton width="75%" height={12} />
+        <Skeleton width="50%" height={12} />
+      </div>
+    </div>
+  );
+}
+
+function JudgeSkeleton() {
+  return (
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 space-y-3">
+      <div className="flex items-center gap-2">
+        <Skeleton circle width={24} height={24} baseColor="#e0e7ff" highlightColor="#c7d2fe" />
+        <Skeleton width={176} height={16} baseColor="#e0e7ff" highlightColor="#c7d2fe" />
+        <Skeleton width={64} height={20} borderRadius={9999} baseColor="#e0e7ff" highlightColor="#c7d2fe" />
+      </div>
+      <Skeleton count={2} height={12} baseColor="#eef2ff" highlightColor="#e0e7ff" />
+      <div className="grid grid-cols-2 gap-4 pt-1">
+        <div className="space-y-2">
+          <Skeleton width={80} height={12} baseColor="#e0e7ff" highlightColor="#c7d2fe" />
+          <Skeleton height={12} baseColor="#eef2ff" highlightColor="#e0e7ff" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton width={64} height={12} baseColor="#e0e7ff" highlightColor="#c7d2fe" />
+          <Skeleton height={12} baseColor="#eef2ff" highlightColor="#e0e7ff" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HITLSkeleton() {
+  return (
+    <div className="rounded-2xl border-2 border-amber-100 bg-amber-50/50 p-6 space-y-4">
+      <div className="flex items-start gap-3">
+        <Skeleton circle width={32} height={32} baseColor="#fde68a" highlightColor="#fcd34d" />
+        <div className="space-y-2 flex-1">
+          <Skeleton width={160} height={16} baseColor="#fde68a" highlightColor="#fcd34d" />
+          <Skeleton width={256} height={12} baseColor="#fef3c7" highlightColor="#fde68a" />
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <Skeleton containerClassName="flex-1" height={64} borderRadius={8} baseColor="#fef3c7" highlightColor="#fde68a" />
+        <Skeleton containerClassName="flex-1" height={64} borderRadius={8} baseColor="#fef3c7" highlightColor="#fde68a" />
+        <Skeleton containerClassName="flex-1" height={64} borderRadius={8} baseColor="#fef3c7" highlightColor="#fde68a" />
+      </div>
+      <div className="flex gap-3 pt-1">
+        <Skeleton containerClassName="flex-1" height={40} borderRadius={8} baseColor="#dcfce7" highlightColor="#bbf7d0" />
+        <Skeleton containerClassName="flex-1" height={40} borderRadius={8} baseColor="#fee2e2" highlightColor="#fecaca" />
+      </div>
+    </div>
+  );
+}
+
+const fadeIn = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -4 },
+  transition: { duration: 0.3, ease: "easeOut" as const },
+};
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
@@ -237,107 +316,136 @@ export default function ResultsPage() {
 
         {/* Right: agent results + HITL */}
         <div className="lg:col-span-2 space-y-4">
-          {/* HITL panel */}
-          {showHITL && hitlData && (
-            <HITLPanel
-              validationId={id}
-              overallScore={hitlData.overall_score}
-              overallPassed={hitlData.overall_passed}
-              findings={hitlData.findings}
-              judgeRecommendation={judgeRecommendation}
-              onDecisionSubmitted={() => setShowHITL(false)}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            {/* HITL panel — real or skeleton */}
+            {showHITL && hitlData ? (
+              <motion.div key="hitl-real" {...fadeIn}>
+                <HITLPanel
+                  validationId={id}
+                  overallScore={hitlData.overall_score}
+                  overallPassed={hitlData.overall_passed}
+                  findings={hitlData.findings}
+                  judgeRecommendation={judgeRecommendation}
+                  onDecisionSubmitted={() => setShowHITL(false)}
+                />
+              </motion.div>
+            ) : !isTerminal && status !== "pending" ? (
+              <motion.div key="hitl-skeleton" {...fadeIn}>
+                <HITLSkeleton />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
-          {/* Judge recommendation card (shown when not in HITL panel) */}
-          {judgeRecommendation && !showHITL && (
-            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5" data-testid="judge-card">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
+          <AnimatePresence mode="wait">
+            {/* Judge recommendation card — real or skeleton */}
+            {judgeRecommendation && !showHITL ? (
+              <motion.div key="judge-real" {...fadeIn} data-testid="judge-card">
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-sm font-semibold text-indigo-900">LLM Judge Recommendation</h3>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      judgeRecommendation.recommendation === "approve"
+                        ? "bg-green-100 text-green-700"
+                        : judgeRecommendation.recommendation === "reject"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-yellow-100 text-yellow-700"
+                    }`}>
+                      {judgeRecommendation.recommendation.replace("_", " ")}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      judgeRecommendation.confidence === "high"
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}>
+                      {judgeRecommendation.confidence} confidence
+                    </span>
+                  </div>
+                  <p className="text-sm text-indigo-800 mb-3">{judgeRecommendation.rationale}</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {judgeRecommendation.key_concerns.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-1">Key Concerns</p>
+                        <ul className="text-xs text-gray-700 space-y-1">
+                          {judgeRecommendation.key_concerns.map((c, i) => (
+                            <li key={i} className="flex gap-1.5">
+                              <span className="text-red-400 flex-shrink-0 mt-0.5">!</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {judgeRecommendation.strengths.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-1">Strengths</p>
+                        <ul className="text-xs text-gray-700 space-y-1">
+                          {judgeRecommendation.strengths.map((s, i) => (
+                            <li key={i} className="flex gap-1.5">
+                              <span className="text-green-400 flex-shrink-0 mt-0.5">+</span>
+                              <span>{s}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <h3 className="text-sm font-semibold text-indigo-900">LLM Judge Recommendation</h3>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  judgeRecommendation.recommendation === "approve"
-                    ? "bg-green-100 text-green-700"
-                    : judgeRecommendation.recommendation === "reject"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-yellow-100 text-yellow-700"
-                }`}>
-                  {judgeRecommendation.recommendation.replace("_", " ")}
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  judgeRecommendation.confidence === "high"
-                    ? "bg-indigo-100 text-indigo-700"
-                    : "bg-gray-100 text-gray-600"
-                }`}>
-                  {judgeRecommendation.confidence} confidence
-                </span>
-              </div>
-              <p className="text-sm text-indigo-800 mb-3">{judgeRecommendation.rationale}</p>
-              <div className="grid grid-cols-2 gap-4">
-                {judgeRecommendation.key_concerns.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-1">Key Concerns</p>
-                    <ul className="text-xs text-gray-700 space-y-1">
-                      {judgeRecommendation.key_concerns.map((c, i) => (
-                        <li key={i} className="flex gap-1.5">
-                          <span className="text-red-400 flex-shrink-0 mt-0.5">!</span>
-                          <span>{c}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {judgeRecommendation.strengths.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-1">Strengths</p>
-                    <ul className="text-xs text-gray-700 space-y-1">
-                      {judgeRecommendation.strengths.map((s, i) => (
-                        <li key={i} className="flex gap-1.5">
-                          <span className="text-green-400 flex-shrink-0 mt-0.5">+</span>
-                          <span>{s}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+              </motion.div>
+            ) : !judgeRecommendation && !isTerminal && status !== "pending" && !showHITL ? (
+              <motion.div key="judge-skeleton" {...fadeIn}>
+                <JudgeSkeleton />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
-          {/* Agent result cards */}
-          {findings.length > 0 && (
-            <div className="space-y-3">
+          {/* Agent result cards — real cards + skeletons for pending agents */}
+          <div className="space-y-3">
+            {(findings.length > 0 || (!isTerminal && status !== "pending")) && (
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
                 Agent Findings
               </h3>
-              {findings.map((f) => (
-                <AgentResultCard key={f.agent} finding={f} />
-              ))}
-            </div>
-          )}
+            )}
 
-          {/* Waiting state */}
-          {findings.length === 0 && !errorMsg && !isTerminal && (
-            <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
-              <div className="flex justify-center mb-3">
-                <svg className="animate-spin h-8 w-8 text-mayo-blue" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-              <p className="text-sm text-gray-500">
-                {status === "scraping"
-                  ? "Scraping Mayo Clinic page..."
-                  : status === "running"
-                  ? "Agents are analyzing content..."
-                  : "Initializing pipeline..."}
-              </p>
-            </div>
-          )}
+            <AnimatePresence>
+              {/* Completed agent cards — animate in */}
+              {findings.map((f) => (
+                <motion.div
+                  key={f.agent}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                >
+                  <AgentResultCard finding={f} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {/* Skeleton cards for agents that haven't completed yet */}
+            <AnimatePresence>
+              {!isTerminal && (status === "scraping" || status === "running") && (() => {
+                const expectedAgents = routingInfo
+                  ? routingInfo.agents_to_run
+                  : ["metadata", "editorial", "compliance", "accuracy"];
+                const pendingAgents = expectedAgents.filter(
+                  (a) => !completedAgents.has(a) && !skippedAgents.has(a)
+                );
+                return pendingAgents.map((a) => (
+                  <motion.div
+                    key={`skeleton-${a}`}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <AgentCardSkeleton />
+                  </motion.div>
+                ));
+              })()}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
     </div>
