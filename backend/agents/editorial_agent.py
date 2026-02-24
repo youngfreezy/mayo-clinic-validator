@@ -84,6 +84,8 @@ async def run_editorial_agent(state: ValidationState) -> dict:
         temperature=0,
         openai_api_key=settings.OPENAI_API_KEY,
         model_kwargs={"response_format": {"type": "json_object"}},
+        tags=["editorial-agent", "gpt-4o"],
+        metadata={"agent": "editorial", "validation_id": state.get("validation_id", "")},
     )
 
     prompt = ChatPromptTemplate.from_messages([

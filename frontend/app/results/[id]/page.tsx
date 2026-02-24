@@ -6,6 +6,7 @@ import {
   createSSEConnection,
   AgentFinding,
   SSEEvent,
+  RoutingInfo,
 } from "@/lib/api";
 import { ValidationProgress } from "@/components/ValidationProgress";
 import { AgentResultCard } from "@/components/AgentResultCard";
@@ -27,6 +28,8 @@ export default function ResultsPage() {
   const [hitlData, setHitlData] = useState<{ overall_score: number; overall_passed: boolean; findings: AgentFinding[] } | null>(null);
   const [finalStatus, setFinalStatus] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [skippedAgents, setSkippedAgents] = useState<Set<string>>(new Set());
+  const [routingInfo, setRoutingInfo] = useState<RoutingInfo | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
 
@@ -41,6 +44,14 @@ export default function ResultsPage() {
         if (s.status) setStatus(s.status);
         if (s.overall_score !== null) setOverallScore(s.overall_score);
         if (s.overall_passed !== null) setOverallPassed(s.overall_passed);
+
+        // Restore routing info from persisted state
+        if (s.routing_decision) {
+          setRoutingInfo(s.routing_decision);
+          setSkippedAgents(new Set(s.routing_decision.agents_skipped || []));
+        } else if (s.skipped_agents?.length) {
+          setSkippedAgents(new Set(s.skipped_agents));
+        }
 
         if (["approved", "rejected", "failed"].includes(s.status)) {
           // Already done — restore full state without opening SSE
@@ -90,6 +101,11 @@ export default function ResultsPage() {
 
         if (event.type === "status") setStatus(event.data.status);
 
+        if (event.type === "routing") {
+          setRoutingInfo(event.data);
+          setSkippedAgents(new Set(event.data.agents_skipped));
+        }
+
         if (event.type === "agent_complete") {
           const { agent, finding } = event.data;
           setCompletedAgents((prev) => new Set([...prev, agent]));
@@ -115,6 +131,12 @@ export default function ResultsPage() {
           setHitlData({ overall_score, overall_passed, findings: f });
           setShowHITL(true);
           setStatus("awaiting_human");
+          if (event.data.skipped_agents) {
+            setSkippedAgents(new Set(event.data.skipped_agents));
+          }
+          if (event.data.routing_decision) {
+            setRoutingInfo(event.data.routing_decision);
+          }
         }
 
         if (event.type === "done") {
@@ -160,6 +182,7 @@ export default function ResultsPage() {
         overallPassed={overallPassed}
         status={finalStatus || status}
         url={url || `Validation ${id?.slice(0, 8)}...`}
+        routingInfo={routingInfo}
       />
 
       {/* Error */}
@@ -196,6 +219,8 @@ export default function ResultsPage() {
             status={finalStatus || status}
             completedAgents={completedAgents}
             agentPassed={agentPassed}
+            skippedAgents={skippedAgents}
+            routingInfo={routingInfo}
           />
         </div>
 

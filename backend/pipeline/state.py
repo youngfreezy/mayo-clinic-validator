@@ -16,6 +16,14 @@ class AgentFinding(BaseModel):
     recommendations: List[str] = []
 
 
+class RoutingDecision(BaseModel):
+    agents_to_run: List[str]
+    agents_skipped: List[str]
+    content_type: str = "standard"      # "hil" or "standard"
+    routing_method: str = "url_based"
+    reasoning: Dict[str, str] = {}
+
+
 def _merge_dicts(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     """
     Reducer for agent_statuses.
@@ -60,6 +68,13 @@ class ValidationState(TypedDict):
     human_decision: Optional[Literal["approve", "reject"]]
     human_feedback: Optional[str]
     reviewed_by: Optional[str]
+
+    # Triage routing (set by triage_node, consumed by dispatch_agents)
+    routing_decision: Optional[Dict[str, Any]]
+    skipped_agents: Annotated[List[str], operator.add]
+
+    # LangSmith trace URL for this validation run
+    trace_url: Optional[str]
 
     # Error accumulation — operator.add so parallel agents can each append errors
     errors: Annotated[List[str], operator.add]

@@ -21,10 +21,18 @@ export interface ValidationState extends ValidationSummary {
   errors: string[];
 }
 
+export interface RoutingInfo {
+  agents_to_run: string[];
+  agents_skipped: string[];
+  content_type: string;
+  routing_method: string;
+}
+
 export type SSEEvent =
   | { type: "status"; data: { status: string; validation_id?: string } }
+  | { type: "routing"; data: RoutingInfo }
   | { type: "agent_complete"; data: { agent: string; finding: AgentFinding | null } }
-  | { type: "hitl"; data: { validation_id: string; overall_score: number; overall_passed: boolean; findings: AgentFinding[] } }
+  | { type: "hitl"; data: { validation_id: string; overall_score: number; overall_passed: boolean; findings: AgentFinding[]; skipped_agents?: string[]; routing_decision?: RoutingInfo } }
   | { type: "done"; data: { status: string } }
   | { type: "error"; data: { message: string } }
   | { type: "ping" };
@@ -86,6 +94,7 @@ export function agentLabel(agent: string): string {
     editorial: "Editorial Quality",
     compliance: "Regulatory Compliance",
     accuracy: "Medical Accuracy",
+    empty_tag: "Empty Tag Check",
   };
   return labels[agent] || agent;
 }
@@ -120,6 +129,12 @@ const AGENT_METHODOLOGY: Record<string, AgentMethodology> = {
     model: "RAG fact-checking",
     methodology:
       "Compares extracted page claims with trusted Mayo knowledge chunks and scores factual alignment and contradictions.",
+  },
+  empty_tag: {
+    agentType: "Empty Tag Agent",
+    model: "Deterministic HTML scanner",
+    methodology:
+      "Scans raw HTML for self-closing or empty tags (e.g. <title/>) that should contain content. Only runs on HIL pages.",
   },
 };
 

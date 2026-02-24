@@ -55,6 +55,9 @@ async def _create_table() -> None:
                 human_decision TEXT,
                 human_feedback TEXT,
                 reviewed_by TEXT,
+                routing_decision JSONB DEFAULT NULL,
+                skipped_agents JSONB DEFAULT '[]',
+                trace_url TEXT DEFAULT NULL,
                 updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
@@ -68,25 +71,32 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
         for f in findings
     ])
     errors_json = json.dumps(state.get("errors", []))
+    routing_json = json.dumps(state.get("routing_decision")) if state.get("routing_decision") else None
+    skipped_json = json.dumps(state.get("skipped_agents", []))
 
     async with pool.connection() as conn:
         await conn.execute("""
             INSERT INTO validations
                 (id, url, requested_by, created_at, status,
                  overall_score, overall_passed, findings, errors,
-                 human_decision, human_feedback, reviewed_by, updated_at)
+                 human_decision, human_feedback, reviewed_by,
+                 routing_decision, skipped_agents, trace_url, updated_at)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, NOW())
+                (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s,
+                 %s::jsonb, %s::jsonb, %s, NOW())
             ON CONFLICT (id) DO UPDATE SET
-                status         = EXCLUDED.status,
-                overall_score  = EXCLUDED.overall_score,
-                overall_passed = EXCLUDED.overall_passed,
-                findings       = EXCLUDED.findings,
-                errors         = EXCLUDED.errors,
-                human_decision = EXCLUDED.human_decision,
-                human_feedback = EXCLUDED.human_feedback,
-                reviewed_by    = EXCLUDED.reviewed_by,
-                updated_at     = NOW()
+                status           = EXCLUDED.status,
+                overall_score    = EXCLUDED.overall_score,
+                overall_passed   = EXCLUDED.overall_passed,
+                findings         = EXCLUDED.findings,
+                errors           = EXCLUDED.errors,
+                human_decision   = EXCLUDED.human_decision,
+                human_feedback   = EXCLUDED.human_feedback,
+                reviewed_by      = EXCLUDED.reviewed_by,
+                routing_decision = EXCLUDED.routing_decision,
+                skipped_agents   = EXCLUDED.skipped_agents,
+                trace_url        = EXCLUDED.trace_url,
+                updated_at       = NOW()
         """, (
             state.get("validation_id"),
             state.get("url"),
@@ -100,6 +110,9 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
             state.get("human_decision"),
             state.get("human_feedback"),
             state.get("reviewed_by"),
+            routing_json,
+            skipped_json,
+            state.get("trace_url"),
         ))
 
 

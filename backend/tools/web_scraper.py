@@ -50,9 +50,11 @@ async def scrape_mayo_url(url: str) -> Dict[str, Any]:
         response = await client.get(url)
         response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "lxml")
+    raw_html = response.text
+    soup = BeautifulSoup(raw_html, "lxml")
 
     return {
+        "raw_html": raw_html,
         "title": _extract_title(soup),
         "meta_description": _extract_meta(soup, "description"),
         "canonical_url": _extract_canonical(soup),

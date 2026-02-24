@@ -103,6 +103,9 @@ def _initial_state(vid: str, url: str, requested_by: str) -> Dict[str, Any]:
         "human_decision": None,
         "human_feedback": None,
         "reviewed_by": None,
+        "routing_decision": None,
+        "skipped_agents": [],
+        "trace_url": None,
         "errors": [],
     }
 
@@ -118,8 +121,17 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
     Exits after emitting the 'hitl' event (graph pauses at interrupt()).
     Persists state to Postgres at each meaningful lifecycle point.
     """
-    config = RunnableConfig(configurable={"thread_id": vid})
+    config = RunnableConfig(
+        configurable={"thread_id": vid},
+        metadata={
+            "validation_id": vid,
+            "url": initial_state.get("url", ""),
+            "requested_by": initial_state.get("requested_by", "web-user"),
+        },
+        tags=["mayo-validator", "pipeline-run"],
+    )
     emitted_agents[vid] = set()
+    routing_emitted = False
 
     try:
         await q.put({"type": "status", "data": {"status": "scraping", "validation_id": vid}})
@@ -132,6 +144,20 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
             await db.upsert_validation(chunk)
 
             current_status = chunk.get("status", "")
+
+            # Emit routing decision once triage completes
+            routing = chunk.get("routing_decision")
+            if routing and not routing_emitted:
+                routing_emitted = True
+                await q.put({
+                    "type": "routing",
+                    "data": {
+                        "agents_to_run": routing.get("agents_to_run", []),
+                        "agents_skipped": routing.get("agents_skipped", []),
+                        "content_type": routing.get("content_type", "unknown"),
+                        "routing_method": routing.get("routing_method", "unknown"),
+                    },
+                })
 
             # Emit "running" status once (after scraping)
             if current_status == "running":
@@ -164,6 +190,8 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         "overall_score": chunk.get("overall_score"),
                         "overall_passed": chunk.get("overall_passed"),
                         "findings": [f.model_dump() for f in findings],
+                        "skipped_agents": chunk.get("skipped_agents", []),
+                        "routing_decision": chunk.get("routing_decision"),
                     },
                 })
                 # Graph is now suspended. Exit background task.
@@ -198,7 +226,15 @@ async def _resume_pipeline(
     Resumes the suspended LangGraph graph after a human decision.
     The graph resumes from the interrupt() point in human_gate_node.
     """
-    config = RunnableConfig(configurable={"thread_id": vid})
+    config = RunnableConfig(
+        configurable={"thread_id": vid},
+        metadata={
+            "validation_id": vid,
+            "human_decision": decision,
+            "reviewer_id": reviewer_id,
+        },
+        tags=["mayo-validator", "pipeline-resume"],
+    )
 
     try:
         resume_command = Command(resume={

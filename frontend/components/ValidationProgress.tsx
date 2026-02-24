@@ -1,18 +1,20 @@
 "use client";
 
-import { agentMethodology } from "@/lib/api";
+import { agentMethodology, RoutingInfo } from "@/lib/api";
 
 const STEPS = [
   { key: "scraping", label: "Scraping URL", description: "Fetching Mayo Clinic page content" },
+  { key: "triage", label: "Content Triage", description: "Classifying content, selecting agents" },
   { key: "metadata", label: "Metadata & SEO", description: "Checking meta tags, JSON-LD, canonical URL" },
   { key: "editorial", label: "Editorial Quality", description: "Headings, last reviewed, attribution" },
   { key: "compliance", label: "Regulatory Compliance", description: "FDA language, disclaimers, prohibited claims" },
   { key: "accuracy", label: "Medical Accuracy", description: "RAG fact-check against knowledge base" },
+  { key: "empty_tag", label: "Empty Tag Check", description: "Scans raw HTML for self-closing/empty tags" },
   { key: "hitl", label: "Human Review", description: "Awaiting editorial approval" },
 ];
 
 function stepMethodology(key: string): { agentType: string; model: string; methodology: string } {
-  if (["metadata", "editorial", "compliance", "accuracy"].includes(key)) {
+  if (["metadata", "editorial", "compliance", "accuracy", "empty_tag"].includes(key)) {
     return agentMethodology(key);
   }
   if (key === "scraping") {
@@ -21,6 +23,14 @@ function stepMethodology(key: string): { agentType: string; model: string; metho
       model: "Deterministic fetch + parse",
       methodology:
         "Downloads the target page, extracts core content blocks, and normalizes HTML before agent analysis.",
+    };
+  }
+  if (key === "triage") {
+    return {
+      agentType: "Content Triage",
+      model: "Deterministic rules (URL-based)",
+      methodology:
+        "Inspects the URL path to classify content type and determine which validation agents are needed. HIL pages get an extra empty-tag scan.",
     };
   }
   return {
@@ -37,21 +47,32 @@ interface Props {
   status: string;
   completedAgents: Set<string>;
   agentPassed: Record<string, boolean>;
+  skippedAgents: Set<string>;
+  routingInfo: RoutingInfo | null;
 }
 
-export function ValidationProgress({ status, completedAgents, agentPassed }: Props) {
+export function ValidationProgress({ status, completedAgents, agentPassed, skippedAgents, routingInfo }: Props) {
   function getStepState(key: string): StepState {
     if (key === "scraping") {
       if (status === "pending") return "pending";
       if (status === "scraping") return "running";
       return "done";
     }
-    if (["metadata", "editorial", "compliance", "accuracy"].includes(key)) {
+
+    if (key === "triage") {
+      if (status === "pending" || status === "scraping") return "pending";
+      if (["running", "awaiting_human", "approved", "rejected"].includes(status)) return "done";
+      return "pending";
+    }
+
+    if (["metadata", "editorial", "compliance", "accuracy", "empty_tag"].includes(key)) {
+      if (skippedAgents.has(key)) return "skipped";
       if (status === "pending" || status === "scraping") return "pending";
       if (status === "running" && !completedAgents.has(key)) return "running";
       if (completedAgents.has(key)) return "done";
       return "pending";
     }
+
     if (key === "hitl") {
       if (status === "awaiting_human") return "running";
       if (status === "approved" || status === "rejected") return "done";
@@ -65,10 +86,22 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
       <h3 className="text-sm font-semibold text-gray-700 mb-5 uppercase tracking-wide">
         Pipeline Progress
       </h3>
+
+      {/* Routing info banner */}
+      {routingInfo && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100">
+          <p className="text-xs font-medium text-blue-700">
+            {routingInfo.content_type === "hil"
+              ? "HIL content detected — running all agents including empty tag check"
+              : `Standard content — ${routingInfo.agents_to_run.length} agents dispatched`}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-0">
         {STEPS.map((step, idx) => {
           const state = getStepState(step.key);
-          const isAgent = ["metadata", "editorial", "compliance", "accuracy"].includes(step.key);
+          const isAgent = ["metadata", "editorial", "compliance", "accuracy", "empty_tag"].includes(step.key);
           const passed = isAgent ? agentPassed[step.key] : undefined;
           const method = stepMethodology(step.key);
 
@@ -78,7 +111,9 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
               <div className="flex flex-col items-center">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all
-                    ${state === "done"
+                    ${state === "skipped"
+                      ? "bg-gray-50 border-gray-200"
+                      : state === "done"
                       ? passed === false
                         ? "bg-red-100 border-red-400"
                         : "bg-green-100 border-green-500"
@@ -87,7 +122,11 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
                       : "bg-gray-100 border-gray-300"
                     }`}
                 >
-                  {state === "done" ? (
+                  {state === "skipped" ? (
+                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                    </svg>
+                  ) : state === "done" ? (
                     passed === false ? (
                       <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -106,7 +145,11 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
                 {idx < STEPS.length - 1 && (
                   <div
                     className={`w-0.5 flex-1 min-h-6 my-1 ${
-                      state === "done" ? "bg-green-300" : "bg-gray-200"
+                      state === "skipped"
+                        ? "bg-gray-100 border-l border-dashed border-gray-300"
+                        : state === "done"
+                        ? "bg-green-300"
+                        : "bg-gray-200"
                     }`}
                   />
                 )}
@@ -117,7 +160,9 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
                 <div className="group/step relative flex items-center gap-2">
                   <span
                     className={`text-sm font-medium ${
-                      state === "running"
+                      state === "skipped"
+                        ? "text-gray-300"
+                        : state === "running"
                         ? "text-mayo-blue"
                         : state === "done"
                         ? "text-gray-900"
@@ -143,13 +188,25 @@ export function ValidationProgress({ status, completedAgents, agentPassed }: Pro
                     <p className="mt-0.5 text-xs text-gray-700">{method.methodology}</p>
                     <p className="mt-2 text-[11px] text-gray-500">Model: {method.model}</p>
                   </div>
+                  {state === "skipped" && (
+                    <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      Skipped
+                    </span>
+                  )}
                   {state === "running" && (
                     <span className="text-xs text-mayo-blue animate-pulse">
                       Running...
                     </span>
                   )}
+                  {state === "done" && step.key === "empty_tag" && (
+                    <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
+                      HIL
+                    </span>
+                  )}
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">{step.description}</p>
+                <p className={`text-xs mt-0.5 ${state === "skipped" ? "text-gray-300" : "text-gray-400"}`}>
+                  {step.description}
+                </p>
               </div>
             </div>
           );
