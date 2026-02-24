@@ -100,7 +100,8 @@ async def run_judge_agent(state: ValidationState) -> dict:
                 "key_concerns": ["No agent findings available to evaluate"],
                 "strengths": [],
                 "rationale": "Cannot make a recommendation without agent findings.",
-            }
+            },
+            "status": "awaiting_human",
         }
 
     llm = ChatOpenAI(
@@ -137,7 +138,8 @@ async def run_judge_agent(state: ValidationState) -> dict:
                 "key_concerns": result.get("key_concerns", []),
                 "strengths": result.get("strengths", []),
                 "rationale": result.get("rationale", ""),
-            }
+            },
+            "status": "awaiting_human",
         }
     except Exception as e:
         return {
@@ -147,5 +149,6 @@ async def run_judge_agent(state: ValidationState) -> dict:
                 "key_concerns": [f"Judge agent error: {str(e)}"],
                 "strengths": [],
                 "rationale": "Judge could not evaluate findings due to an error.",
-            }
+            },
+            "status": "awaiting_human",
         }

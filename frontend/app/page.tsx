@@ -9,7 +9,7 @@ export default function HomePage() {
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Content Validation Dashboard</h2>
         <p className="text-gray-500 mt-1 text-sm">
-          4-agent LangGraph pipeline: Metadata · Editorial · Compliance · Accuracy (RAG)
+          Multi-agent LangGraph pipeline: Triage · Metadata · Editorial · Compliance · Accuracy (RAG) · Empty Tag · LLM Judge
         </p>
       </div>
 
@@ -25,11 +25,14 @@ export default function HomePage() {
           {[
             "URL Input",
             "Scrape Content",
+            "Content Triage",
             "Metadata Agent",
             "Editorial Agent",
             "Compliance Agent",
             "Accuracy Agent (RAG)",
+            "Empty Tag Check",
             "Aggregate",
+            "LLM Judge",
             "Human Gate (HITL)",
             "Approve / Reject",
           ].map((step, i, arr) => (

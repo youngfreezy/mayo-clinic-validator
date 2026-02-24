@@ -43,17 +43,19 @@ export function PipelineArchitectureModal() {
             {/* Diagram */}
             <div className="p-6 space-y-6 text-xs">
 
-              {/* Row 1 — input */}
+              {/* Row 1 — input + triage */}
               <div className="flex flex-col items-center gap-1">
                 <Node label="URL Input" color="blue" />
                 <Arrow />
-                <Node label="Scrape Content" sublabel="httpx + BeautifulSoup4 · title, meta, JSON-LD, headings, body text, OG tags" color="blue" wide />
+                <Node label="Scrape Content" sublabel="httpx + BeautifulSoup4 · title, meta, JSON-LD, headings, body text, OG tags, raw HTML" color="blue" wide />
+                <Arrow />
+                <Node label="Content Triage" sublabel="Deterministic URL-based routing · classifies HIL vs standard · selects agent set" color="sky" wide />
                 <Arrow />
                 <div className="text-gray-400 font-medium text-[11px]">dispatch_agents() — Send API (parallel fan-out)</div>
               </div>
 
-              {/* Row 2 — 4 agents */}
-              <div className="grid grid-cols-4 gap-3">
+              {/* Row 2 — 5 agents (4 standard + conditional empty tag) */}
+              <div className="grid grid-cols-5 gap-3">
                 <AgentColumn
                   label="Metadata Agent"
                   color="indigo"
@@ -73,12 +75,18 @@ export function PipelineArchitectureModal() {
                   threshold="≥ 0.75"
                 />
                 <RagAgentColumn />
+                <AgentColumn
+                  label="Empty Tag Check"
+                  color="sky"
+                  items={["Self-closing tags (<title/>)", "Empty content tags", "HIL content only", "Line-number reporting"]}
+                  threshold="≥ 0.8"
+                />
               </div>
 
               {/* Reducer note */}
               <div className="flex flex-col items-center gap-1">
                 <div className="text-gray-400 font-mono text-[10px] text-center">
-                  findings: Annotated[List, operator.add] — all 4 agents merge via reducer
+                  findings: Annotated[List, operator.add] — dispatched agents merge via reducer
                 </div>
                 <Arrow />
 
@@ -87,6 +95,15 @@ export function PipelineArchitectureModal() {
                   label="Aggregate Node"
                   sublabel="overall_score = mean(scores) · overall_passed = all(passed)"
                   color="violet"
+                  wide
+                />
+                <Arrow />
+
+                {/* Row 3.5 — LLM Judge */}
+                <Node
+                  label="LLM Judge"
+                  sublabel="GPT-4o-mini (JSON mode) · synthesizes all findings → approve / reject / needs_revision · confidence + rationale"
+                  color="fuchsia"
                   wide
                 />
                 <Arrow />
@@ -117,9 +134,11 @@ export function PipelineArchitectureModal() {
               {/* Legend */}
               <div className="border-t border-gray-100 pt-4 flex flex-wrap gap-4 justify-center text-[11px] text-gray-500">
                 <span><span className="inline-block w-3 h-3 rounded bg-blue-600 mr-1 align-middle" />Input / Scraping</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-sky-500 mr-1 align-middle" />Triage / Conditional</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-indigo-600 mr-1 align-middle" />LLM Agents (GPT-4o)</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-purple-600 mr-1 align-middle" />RAG (PGVector)</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-violet-600 mr-1 align-middle" />Aggregation</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-fuchsia-600 mr-1 align-middle" />LLM Judge (GPT-4o-mini)</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-amber-500 mr-1 align-middle" />Human-in-the-Loop</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-green-600 mr-1 align-middle" />Approve</span>
                 <span><span className="inline-block w-3 h-3 rounded bg-red-500 mr-1 align-middle" />Reject</span>
@@ -135,13 +154,15 @@ export function PipelineArchitectureModal() {
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 const colorMap: Record<string, string> = {
-  blue:   "bg-blue-600 text-white",
-  indigo: "bg-indigo-600 text-white",
-  violet: "bg-violet-600 text-white",
-  amber:  "bg-amber-500 text-white",
-  green:  "bg-green-600 text-white",
-  red:    "bg-red-500 text-white",
-  purple: "bg-purple-600 text-white",
+  blue:    "bg-blue-600 text-white",
+  sky:     "bg-sky-500 text-white",
+  indigo:  "bg-indigo-600 text-white",
+  violet:  "bg-violet-600 text-white",
+  fuchsia: "bg-fuchsia-600 text-white",
+  amber:   "bg-amber-500 text-white",
+  green:   "bg-green-600 text-white",
+  red:     "bg-red-500 text-white",
+  purple:  "bg-purple-600 text-white",
 };
 
 function Node({ label, sublabel, color, wide }: { label: string; sublabel?: string; color: string; wide?: boolean }) {

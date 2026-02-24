@@ -112,7 +112,7 @@ export function ScoreSummary({ overallScore, overallPassed, status, url, routing
       {overallScore !== null && (
         <div className="mt-3 flex items-center gap-2">
           <a
-            href={`https://smith.langchain.com/o/default/projects/p/mayo-clinic-validator`}
+            href="https://smith.langchain.com"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium"

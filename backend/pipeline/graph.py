@@ -78,7 +78,8 @@ async def aggregate_node(state: ValidationState) -> dict:
     return {
         "overall_score": overall_score,
         "overall_passed": overall_passed,
-        "status": "awaiting_human",
+        # Note: status stays "running" here. The human_gate_node sets
+        # "awaiting_human" via interrupt(), which the SSE handler detects.
     }
 
 
