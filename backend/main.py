@@ -176,6 +176,8 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
     routing_emitted = False
     judge_emitted = False
 
+    hitl_emitted = False
+
     try:
         await q.put({"type": "status", "data": {"status": "scraping", "validation_id": vid}})
         deadline = asyncio.get_event_loop().time() + PIPELINE_TIMEOUT
@@ -237,7 +239,10 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                 })
 
             # Emit HITL event when graph hits interrupt()
-            if current_status == "awaiting_human":
+            # Do NOT return/break here — let astream() finish naturally
+            # to avoid GeneratorExit errors in LangSmith traces.
+            if current_status == "awaiting_human" and not hitl_emitted:
+                hitl_emitted = True
                 findings = chunk.get("findings", [])
                 await q.put({
                     "type": "hitl",
@@ -251,13 +256,6 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         "judge_recommendation": chunk.get("judge_recommendation"),
                     },
                 })
-                # Populate trace URL before exiting
-                trace_url = _build_trace_url(vid)
-                if trace_url and vid in validation_store:
-                    validation_store[vid]["trace_url"] = trace_url
-                    await db.upsert_validation(validation_store[vid])
-                # Graph is now suspended. Exit background task.
-                return
 
             # Emit error status
             if current_status == "failed":
@@ -269,10 +267,33 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                 await q.put({"type": "done", "data": {"status": "failed"}})
                 return
 
+        # Stream ended naturally (interrupt() or graph completed).
+        # Populate trace URL for HITL runs.
+        if hitl_emitted:
+            trace_url = _build_trace_url(vid)
+            if trace_url and vid in validation_store:
+                validation_store[vid]["trace_url"] = trace_url
+                await db.upsert_validation(validation_store[vid])
+
     except GraphInterrupt:
-        # interrupt() raises GraphInterrupt — this is normal HITL suspension,
-        # NOT an error. If we reach here, the graph paused at human_gate_node.
-        # Populate trace URL and exit cleanly (SSE stays open for resume).
+        # interrupt() may also propagate as GraphInterrupt in some cases.
+        # This is normal HITL suspension, not an error.
+        if not hitl_emitted:
+            hitl_emitted = True
+            state = validation_store.get(vid, {})
+            findings = state.get("findings", [])
+            await q.put({
+                "type": "hitl",
+                "data": {
+                    "validation_id": vid,
+                    "overall_score": state.get("overall_score"),
+                    "overall_passed": state.get("overall_passed"),
+                    "findings": [f.model_dump() if hasattr(f, "model_dump") else f for f in findings],
+                    "skipped_agents": state.get("skipped_agents", []),
+                    "routing_decision": state.get("routing_decision"),
+                    "judge_recommendation": state.get("judge_recommendation"),
+                },
+            })
         trace_url = _build_trace_url(vid)
         if trace_url and vid in validation_store:
             validation_store[vid]["trace_url"] = trace_url

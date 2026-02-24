@@ -364,11 +364,25 @@ After all agents complete, the **judge node** (GPT-4o-mini) synthesizes findings
 
 The judge's recommendation and confidence level are shown to the human reviewer alongside the detailed agent findings, helping inform the final HITL decision.
 
-## Observability (LangSmith)
+## Observability (LangSmith Tracing)
 
-LangSmith tracing is enabled by default. Each pipeline run is correlated to its validation via `run_id=validation_id`:
+LangSmith tracing is enabled by default. Every LLM call, graph node execution, and tool invocation is captured as a **trace** — a hierarchical tree of operations that shows exactly what happened during a validation run.
 
-- **Per-agent tags**: Each LLM call is tagged with the agent name (e.g., `editorial-agent`, `accuracy-agent`)
+**What tracing gives us:**
+
+| Capability | What it shows |
+|-----------|--------------|
+| **Full execution timeline** | See every graph node (fetch → triage → agents → judge → human_gate) with exact durations |
+| **LLM call inspection** | View the exact prompts sent to GPT-4o/GPT-4o-mini, the raw responses, token counts, and latency per call |
+| **Token & cost tracking** | LangSmith automatically calculates token usage and estimated cost for each LLM call and aggregates across the full run |
+| **Error diagnosis** | When an agent fails, the trace shows the exact exception, which node it occurred in, and the state at that point |
+| **RAG retrieval debugging** | For the accuracy agent, see which PGVector documents were retrieved and how they influenced the fact-check |
+| **Run correlation** | Each trace is linked to its `validation_id` via `run_id`, so you can jump from a validation in the UI directly to its trace |
+| **Per-agent tagging** | Each LLM call is tagged with the agent name (e.g., `editorial-agent`, `accuracy-agent`) for filtering and comparison |
+| **Latency bottlenecks** | Identify which agents are slowest and whether parallel fan-out is working as expected |
+
+**Configuration:**
+
 - **Trace URLs**: Stored in the `trace_url` field of each validation after the HITL gate
 - **Pipeline timeout**: 5-minute deadline per validation, 1-minute deadline per resume
 - **Centralized LLM factory**: All agents use `create_agent_llm()` with `request_timeout=120s` per LLM call
