@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # psycopg3 driver URI used internally by LangChain PGVector
     PGVECTOR_CONNECTION_STRING: str = (
-        "postgresql+psycopg://postgres:postgres@localhost:5432/mayo_validation"
+        "postgresql+psycopg://postgres:postgres@localhost:5433/mayo_validation"
     )
 
     LANGCHAIN_TRACING_V2: str = "false"
