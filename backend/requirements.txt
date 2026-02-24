@@ -9,6 +9,7 @@ langchain>=0.2.16
 langchain-core>=0.2.38
 langchain-openai>=0.1.23
 langchain-postgres>=0.0.9
+langchain-text-splitters>=0.2.0
 
 # Database (psycopg3 — required by langchain-postgres)
 psycopg[binary]>=3.1.0

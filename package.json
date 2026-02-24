@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "setup": "node scripts/setup.js",
+    "setup:win": "scripts\\setup.bat",
     "start": "node scripts/start.js",
+    "start:win": "scripts\\start.bat",
     "record": "node scripts/record-demo.js"
   }
 }
