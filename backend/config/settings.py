@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         "postgresql+psycopg://postgres:postgres@localhost:5433/mayo_validation"
     )
 
-    LANGCHAIN_TRACING_V2: str = "false"
+    LANGCHAIN_TRACING_V2: str = "true"
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "mayo-clinic-validator"
 
@@ -41,3 +41,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# LangSmith reads os.environ directly, not Pydantic. Export so tracing
+# activates even when values are only set in .env (not shell env).
+import os
+os.environ.setdefault("LANGCHAIN_TRACING_V2", settings.LANGCHAIN_TRACING_V2)
+os.environ.setdefault("LANGCHAIN_API_KEY", settings.LANGCHAIN_API_KEY)
+os.environ.setdefault("LANGCHAIN_PROJECT", settings.LANGCHAIN_PROJECT)

@@ -11,12 +11,11 @@ to keep it deterministic and avoid infinite tool loops inside a Send branch.
 import asyncio
 import json
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
 from tools.rag_retriever import get_retriever
-from config.settings import settings
+from agents.llm_factory import create_agent_llm
 
 SYSTEM_PROMPT = """You are a medical accuracy reviewer for Mayo Clinic.
 You have been provided with verified medical reference documents from Mayo Clinic's knowledge base.
@@ -70,6 +69,16 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
             "agent_statuses": {"accuracy": "done"},
         }
 
+    if not content.get("body_text"):
+        finding = AgentFinding(
+            agent="accuracy",
+            passed=False,
+            score=0.0,
+            issues=["No body text available for accuracy review"],
+            recommendations=["Ensure the page has extractable text content"],
+        )
+        return {"findings": [finding], "agent_statuses": {"accuracy": "done"}}
+
     # Build a query from title + first portion of body
     title = content.get("title", "")
     body = content.get("body_text", "")
@@ -89,14 +98,7 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
     except Exception as e:
         references_text = f"Knowledge base unavailable: {str(e)}"
 
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0,
-        openai_api_key=settings.OPENAI_API_KEY,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        tags=["accuracy-agent", "gpt-4o"],
-        metadata={"agent": "accuracy", "validation_id": state.get("validation_id", "")},
-    )
+    llm = create_agent_llm("accuracy", validation_id=state.get("validation_id", ""))
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),

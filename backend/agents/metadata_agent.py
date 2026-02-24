@@ -12,11 +12,10 @@ Checks:
 import json
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
-from config.settings import settings
+from agents.llm_factory import create_agent_llm
 
 SYSTEM_PROMPT = """You are a medical web content metadata specialist for Mayo Clinic.
 Evaluate the metadata quality of a Mayo Clinic web page and respond ONLY with valid JSON.
@@ -78,14 +77,7 @@ async def run_metadata_agent(state: ValidationState) -> dict:
             schema_type = obj.get("@type", "Unknown")
             json_ld_types.append(schema_type)
 
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0,
-        openai_api_key=settings.OPENAI_API_KEY,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        tags=["metadata-agent", "gpt-4o"],
-        metadata={"agent": "metadata", "validation_id": state.get("validation_id", "")},
-    )
+    llm = create_agent_llm("metadata", validation_id=state.get("validation_id", ""))
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),

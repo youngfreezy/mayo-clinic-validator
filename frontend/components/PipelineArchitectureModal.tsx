@@ -51,7 +51,10 @@ export function PipelineArchitectureModal() {
                 <Arrow />
                 <Node label="Content Triage" sublabel="Deterministic URL-based routing · classifies HIL vs standard · selects agent set" color="sky" wide />
                 <Arrow />
-                <div className="text-gray-400 font-medium text-[11px]">dispatch_agents() — Send API (parallel fan-out)</div>
+                <div className="text-gray-400 font-medium text-[11px] text-center max-w-xl">
+                  dispatch_agents() — Send API (parallel fan-out)<br />
+                  <span className="text-sky-500">Standard pages → 4 agents</span> · <span className="text-sky-500">HIL pages (healthy-lifestyle) → 5 agents (+ Empty Tag Check)</span>
+                </div>
               </div>
 
               {/* Row 2 — 5 agents (4 standard + conditional empty tag) */}

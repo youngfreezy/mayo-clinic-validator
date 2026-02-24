@@ -20,7 +20,7 @@ A multi-agent LangGraph content validation platform with human-in-the-loop (HITL
 ```
                         ┌─────────────────────────────────────────────┐
                         │          LANGGRAPH STATE MACHINE            │
-                        │   (MemorySaver checkpointer — HITL safe)    │
+                        │  (PostgresCheckpointer — durable HITL)      │
                         └─────────────────────────────────────────────┘
 
                                           │
@@ -89,7 +89,7 @@ A multi-agent LangGraph content validation platform with human-in-the-loop (HITL
                               │  interrupt()  ◄────┼──── SSE: {type:"hitl"}
                               │  judge rec shown   │         graph suspends
                               │  to reviewer       │         state persisted
-                              │  MemorySaver       │
+                              │  PostgresChkpt     │
                               │  checkpoints here  │
                               └────────┬───────────┘
                                        │ Command(resume={decision, feedback})
@@ -189,7 +189,7 @@ AgentFinding {passed, score, issues, recommendations}
 
 ```python
 class ValidationState(TypedDict):
-    findings: Annotated[List[AgentFinding], operator.add]   # merge all 4 agents
+    findings: Annotated[List[AgentFinding], operator.add]   # merge all dispatched agents
     agent_statuses: Annotated[Dict[str, str], _merge_dicts] # merge dict keys
     errors: Annotated[List[str], operator.add]               # accumulate errors
     messages: Annotated[List[BaseMessage], add_messages]     # LangChain messages
@@ -204,13 +204,15 @@ The `Annotated` reducers are **mandatory** for the `Send` API parallel fan-out. 
 
 | Layer | Technology |
 |-------|-----------|
-| Orchestration | LangGraph 1.0 (StateGraph, Send API, interrupt/Command) |
+| Orchestration | LangGraph 1.0 (StateGraph, Send API, interrupt/Command, PostgresCheckpointer) |
 | LLM | OpenAI GPT-4o (agents) + GPT-4o-mini (judge) |
 | Vector DB | PostgreSQL 16 + pgvector (Docker) |
 | Embeddings | OpenAI text-embedding-3-small |
 | Web Scraping | httpx + BeautifulSoup4 + lxml |
 | API | FastAPI + uvicorn + sse-starlette |
 | Frontend | Next.js 14 App Router + TypeScript + Tailwind CSS |
+| Observability | LangSmith (tracing, per-agent tags, trace URL correlation) |
+| Checkpointer | AsyncPostgresSaver (durable HITL state, survives restarts) |
 | Testing | pytest + Playwright |
 | Runtime | Python 3.11 + Node 20 |
 
@@ -255,7 +257,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 # Verify: http://localhost:8000/api/health → {"status":"ok"}
 ```
 
-> **Note:** Run uvicorn **without** `--workers` — MemorySaver (HITL checkpointer) is single-process only.
+> **Note:** HITL state is persisted to Postgres via `AsyncPostgresSaver`. You can safely restart uvicorn without losing pending reviews.
 
 ### Step 3 — Frontend (Terminal 2)
 
@@ -272,8 +274,8 @@ npm run dev
 1. Open **http://localhost:3000**
 2. Paste any `mayoclinic.org` URL (e.g. `https://www.mayoclinic.org/diseases-conditions/diabetes/symptoms-causes/syc-20371444`)
 3. Click **Validate**
-4. Watch the 4 agents complete in real time on the results page
-5. Click **Approve for Publication** or **Reject** in the Human Review panel
+4. Watch agents complete in real time (4-5 agents depending on URL, plus LLM Judge)
+5. Review the Judge's recommendation, then click **Approve** or **Reject** in the Human Review panel
 
 Validation history is persisted to Postgres and survives backend restarts.
 
@@ -322,12 +324,53 @@ Overall pass = **all dispatched agents pass**. Overall score = **mean of agent s
 
 ---
 
-## HITL Note
+## HITL + PostgresCheckpointer
 
 Human gate uses LangGraph's `interrupt()` + `Command(resume=...)` pattern:
-- Graph pauses at `human_gate_node`, state persisted in `MemorySaver`
+- Graph pauses at `human_gate_node`, state persisted in `AsyncPostgresSaver` (Postgres)
 - SSE stream stays open (no `done` event)
 - `POST /api/validate/{id}/decide` resumes graph via `Command(resume={decision})`
 - `interrupt()` returns the decision dict — node routes to approve/reject
 
-> **Important:** `MemorySaver` is in-process only. Restarting uvicorn clears all pending validations. For production, replace with `AsyncPostgresSaver`.
+**How the checkpointer works:**
+
+| Event | What happens |
+|-------|-------------|
+| Every graph node completes | Checkpointer serializes full `ValidationState` to Postgres (keyed by `thread_id`) |
+| `interrupt()` called in `human_gate_node` | Graph suspends — checkpointer saves exact execution position |
+| Human submits decision | `astream(Command(resume=...))` reloads saved state from Postgres and resumes from where it paused |
+| Server restarts while awaiting review | Pending HITL validations survive — state is durable in Postgres |
+
+> Falls back to in-memory `MemorySaver` when Postgres is unavailable (e.g., local development without Docker).
+
+## Conditional Routing (Content Triage)
+
+The `triage_node` classifies URLs before agent dispatch:
+
+| URL Pattern | Content Type | Agents Dispatched |
+|-------------|-------------|-------------------|
+| `/healthy-lifestyle/*` | HIL (Healthy Living) | Metadata, Editorial, Compliance, Accuracy, **Empty Tag** |
+| Everything else | Standard medical | Metadata, Editorial, Compliance, Accuracy |
+
+Routing uses LangGraph's **Send API** for parallel fan-out — all dispatched agents execute concurrently. The `dispatch_agents()` function reads the `routing_decision` from state (set by triage) and returns `Send(node_name, state)` for each selected agent.
+
+## LLM-as-a-Judge
+
+After all agents complete, the **judge node** (GPT-4o-mini) synthesizes findings into a recommendation:
+
+- **approve** — content meets all standards
+- **reject** — content has significant issues
+- **needs_revision** — content has minor issues that should be addressed
+
+The judge's recommendation and confidence level are shown to the human reviewer alongside the detailed agent findings, helping inform the final HITL decision.
+
+## Observability (LangSmith)
+
+LangSmith tracing is enabled by default. Each pipeline run is correlated to its validation via `run_id=validation_id`:
+
+- **Per-agent tags**: Each LLM call is tagged with the agent name (e.g., `editorial-agent`, `accuracy-agent`)
+- **Trace URLs**: Stored in the `trace_url` field of each validation after the HITL gate
+- **Pipeline timeout**: 5-minute deadline per validation, 1-minute deadline per resume
+- **Centralized LLM factory**: All agents use `create_agent_llm()` with `request_timeout=120s` per LLM call
+
+> Set `LANGCHAIN_TRACING_V2=false` in `.env` to disable tracing.

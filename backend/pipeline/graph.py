@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import List
 
 from langgraph.graph import StateGraph, END, START
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt, Send
 
 from pipeline.state import ValidationState, AgentFinding
@@ -131,6 +130,18 @@ async def reject_node(state: ValidationState) -> dict:
 # Routing after human gate
 # ---------------------------------------------------------------------------
 
+def route_after_fetch(state: ValidationState) -> str:
+    """Route to triage on success, or directly to error terminal on fetch failure."""
+    if state.get("status") == "failed":
+        return "fetch_error"
+    return "triage"
+
+
+async def fetch_error_node(state: ValidationState) -> dict:
+    """Terminal node when content fetching fails. Skips all agents."""
+    return {"status": "failed"}
+
+
 def route_after_human(state: ValidationState) -> str:
     return "approve" if state.get("human_decision") == "approve" else "reject"
 
@@ -139,7 +150,7 @@ def route_after_human(state: ValidationState) -> str:
 # Build and compile the graph
 # ---------------------------------------------------------------------------
 
-def build_graph() -> StateGraph:
+def build_graph(checkpointer=None) -> StateGraph:
     g = StateGraph(ValidationState)
 
     # Register all nodes
@@ -156,11 +167,19 @@ def build_graph() -> StateGraph:
     g.add_node("approve", approve_node)
     g.add_node("reject", reject_node)
 
+    # Error terminal node (short-circuits when scraping fails)
+    g.add_node("fetch_error", fetch_error_node)
+
     # Entry point
     g.add_edge(START, "fetch_content")
 
-    # fetch_content → triage (classify content, select agents)
-    g.add_edge("fetch_content", "triage")
+    # fetch_content → triage on success, fetch_error on failure
+    g.add_conditional_edges(
+        "fetch_content",
+        route_after_fetch,
+        {"triage": "triage", "fetch_error": "fetch_error"},
+    )
+    g.add_edge("fetch_error", END)
 
     # Fan-out: triage → dispatch → selected agents
     g.add_conditional_edges(
@@ -188,10 +207,4 @@ def build_graph() -> StateGraph:
     g.add_edge("approve", END)
     g.add_edge("reject", END)
 
-    # Compile with MemorySaver for HITL state persistence
-    # NOTE: MemorySaver = single uvicorn worker only (no --workers flag)
-    return g.compile(checkpointer=MemorySaver())
-
-
-# Module-level singleton graph instance
-validation_graph = build_graph()
+    return g.compile(checkpointer=checkpointer)

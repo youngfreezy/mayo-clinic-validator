@@ -14,11 +14,10 @@ Checks:
 
 import json
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
-from config.settings import settings
+from agents.llm_factory import create_agent_llm
 
 SYSTEM_PROMPT = """You are a senior editorial standards reviewer for Mayo Clinic's digital health content.
 Evaluate editorial quality and structure of a Mayo Clinic web page. Respond ONLY with valid JSON.
@@ -74,19 +73,22 @@ async def run_editorial_agent(state: ValidationState) -> dict:
             "agent_statuses": {"editorial": "done"},
         }
 
+    if not content.get("body_text") and not content.get("headings"):
+        finding = AgentFinding(
+            agent="editorial",
+            passed=False,
+            score=0.0,
+            issues=["Scraped content missing both body_text and headings"],
+            recommendations=["Verify the scraper is extracting content correctly"],
+        )
+        return {"findings": [finding], "agent_statuses": {"editorial": "done"}}
+
     headings = content.get("headings", [])
     headings_formatted = "\n".join(
         f"  {'#' * h['level']} {h['text']}" for h in headings
     )
 
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0,
-        openai_api_key=settings.OPENAI_API_KEY,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        tags=["editorial-agent", "gpt-4o"],
-        metadata={"agent": "editorial", "validation_id": state.get("validation_id", "")},
-    )
+    llm = create_agent_llm("editorial", validation_id=state.get("validation_id", ""))
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),

@@ -14,11 +14,10 @@ This gives the human reviewer an LLM "second opinion" to speed up decision-makin
 
 import json
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
-from config.settings import settings
+from agents.llm_factory import create_agent_llm
 
 SYSTEM_PROMPT = """You are a senior content quality judge for Mayo Clinic's digital publishing pipeline.
 You have received the outputs of multiple specialized validation agents that each checked
@@ -104,14 +103,7 @@ async def run_judge_agent(state: ValidationState) -> dict:
             "status": "awaiting_human",
         }
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
-        openai_api_key=settings.OPENAI_API_KEY,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        tags=["judge-agent", "gpt-4o-mini", "llm-as-judge"],
-        metadata={"agent": "judge", "validation_id": state.get("validation_id", "")},
-    )
+    llm = create_agent_llm("judge", validation_id=state.get("validation_id", ""), model="gpt-4o-mini")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),

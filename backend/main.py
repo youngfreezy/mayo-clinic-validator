@@ -34,22 +34,45 @@ from typing import Dict, Any
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 from sse_starlette.sse import EventSourceResponse
 
 from config.settings import settings
 from models.schemas import ValidateRequest, HumanDecisionRequest
-from pipeline.graph import validation_graph
+from pipeline.graph import build_graph
 import db
 
 
 # ---------------------------------------------------------------------------
-# App lifecycle — open/close DB pool
+# Graph singleton — initialized at startup with the correct checkpointer
+# ---------------------------------------------------------------------------
+
+validation_graph = None  # set in lifespan
+
+
+# ---------------------------------------------------------------------------
+# App lifecycle — open/close DB pool, initialize graph
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global validation_graph
     await db.init_pool()
+
+    # Use PostgresCheckpointer for durable HITL state (survives restarts).
+    # Falls back to in-memory MemorySaver when Postgres is unavailable.
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        dsn = settings.DATABASE_URL or "postgresql://postgres:postgres@localhost:5433/mayo_validation"
+        checkpointer = AsyncPostgresSaver.from_conn_string(dsn)
+        await checkpointer.setup()
+    except Exception:
+        from langgraph.checkpoint.memory import MemorySaver
+        checkpointer = MemorySaver()
+
+    validation_graph = build_graph(checkpointer=checkpointer)
+
     yield
     await db.close_pool()
 
@@ -115,6 +138,23 @@ def _initial_state(vid: str, url: str, requested_by: str) -> Dict[str, Any]:
 # Background tasks
 # ---------------------------------------------------------------------------
 
+PIPELINE_TIMEOUT = 300.0  # 5 minutes
+RESUME_TIMEOUT = 60.0    # 1 minute (resume only runs approve/reject nodes)
+
+
+def _build_trace_url(vid: str) -> str | None:
+    """Retrieve LangSmith trace URL if tracing is enabled."""
+    if settings.LANGCHAIN_TRACING_V2.lower() != "true" or not settings.LANGCHAIN_API_KEY:
+        return None
+    try:
+        from langsmith import Client
+        client = Client()
+        run = client.read_run(run_id=uuid.UUID(vid))
+        return run.url
+    except Exception:
+        return None
+
+
 async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None:
     """
     Runs the LangGraph validation pipeline in a background task.
@@ -124,6 +164,7 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
     """
     config = RunnableConfig(
         configurable={"thread_id": vid},
+        run_id=uuid.UUID(vid),
         metadata={
             "validation_id": vid,
             "url": initial_state.get("url", ""),
@@ -137,10 +178,14 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
 
     try:
         await q.put({"type": "status", "data": {"status": "scraping", "validation_id": vid}})
+        deadline = asyncio.get_event_loop().time() + PIPELINE_TIMEOUT
 
         async for chunk in validation_graph.astream(
             initial_state, config=config, stream_mode="values"
         ):
+            # Check deadline
+            if asyncio.get_event_loop().time() > deadline:
+                raise asyncio.TimeoutError("Pipeline exceeded 5-minute deadline")
             # chunk is the full ValidationState after each node completes
             validation_store[vid] = chunk
             await db.upsert_validation(chunk)
@@ -206,6 +251,11 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         "judge_recommendation": chunk.get("judge_recommendation"),
                     },
                 })
+                # Populate trace URL before exiting
+                trace_url = _build_trace_url(vid)
+                if trace_url and vid in validation_store:
+                    validation_store[vid]["trace_url"] = trace_url
+                    await db.upsert_validation(validation_store[vid])
                 # Graph is now suspended. Exit background task.
                 return
 
@@ -218,6 +268,25 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                 })
                 await q.put({"type": "done", "data": {"status": "failed"}})
                 return
+
+    except GraphInterrupt:
+        # interrupt() raises GraphInterrupt — this is normal HITL suspension,
+        # NOT an error. If we reach here, the graph paused at human_gate_node.
+        # Populate trace URL and exit cleanly (SSE stays open for resume).
+        trace_url = _build_trace_url(vid)
+        if trace_url and vid in validation_store:
+            validation_store[vid]["trace_url"] = trace_url
+            await db.upsert_validation(validation_store[vid])
+
+    except asyncio.TimeoutError:
+        if vid in validation_store:
+            validation_store[vid]["status"] = "failed"
+            validation_store[vid].setdefault("errors", []).append(
+                "Pipeline timed out after 5 minutes"
+            )
+            await db.upsert_validation(validation_store[vid])
+        await q.put({"type": "error", "data": {"message": "Pipeline timed out after 5 minutes"}})
+        await q.put({"type": "done", "data": {"status": "failed"}})
 
     except Exception as e:
         if vid in validation_store:
@@ -240,6 +309,7 @@ async def _resume_pipeline(
     """
     config = RunnableConfig(
         configurable={"thread_id": vid},
+        run_id=uuid.UUID(vid),
         metadata={
             "validation_id": vid,
             "human_decision": decision,
@@ -255,14 +325,38 @@ async def _resume_pipeline(
             "reviewed_by": reviewer_id,
         })
 
+        deadline = asyncio.get_event_loop().time() + RESUME_TIMEOUT
+
         async for chunk in validation_graph.astream(
             resume_command, config=config, stream_mode="values"
         ):
+            if asyncio.get_event_loop().time() > deadline:
+                raise asyncio.TimeoutError("Resume exceeded 1-minute deadline")
             validation_store[vid] = chunk
             await db.upsert_validation(chunk)
 
+        # Populate trace URL after resume completes
+        trace_url = _build_trace_url(vid)
+        if trace_url and vid in validation_store:
+            validation_store[vid]["trace_url"] = trace_url
+            await db.upsert_validation(validation_store[vid])
+
         final_status = validation_store.get(vid, {}).get("status", "unknown")
         await q.put({"type": "done", "data": {"status": final_status}})
+
+    except GraphInterrupt:
+        # Should not happen on resume, but handle gracefully
+        pass
+
+    except asyncio.TimeoutError:
+        if vid in validation_store:
+            validation_store[vid]["status"] = "failed"
+            validation_store[vid].setdefault("errors", []).append(
+                "Resume timed out after 1 minute"
+            )
+            await db.upsert_validation(validation_store[vid])
+        await q.put({"type": "error", "data": {"message": "Resume timed out after 1 minute"}})
+        await q.put({"type": "done", "data": {"status": "failed"}})
 
     except Exception as e:
         await q.put({"type": "error", "data": {"message": str(e)}})

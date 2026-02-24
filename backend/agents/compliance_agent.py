@@ -12,11 +12,10 @@ Checks:
 
 import json
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
-from config.settings import settings
+from agents.llm_factory import create_agent_llm
 
 SYSTEM_PROMPT = """You are a medical content compliance specialist for Mayo Clinic.
 Review health content for regulatory compliance, legal language, and editorial policy violations.
@@ -76,14 +75,17 @@ async def run_compliance_agent(state: ValidationState) -> dict:
             "agent_statuses": {"compliance": "done"},
         }
 
-    llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0,
-        openai_api_key=settings.OPENAI_API_KEY,
-        model_kwargs={"response_format": {"type": "json_object"}},
-        tags=["compliance-agent", "gpt-4o"],
-        metadata={"agent": "compliance", "validation_id": state.get("validation_id", "")},
-    )
+    if not content.get("body_text"):
+        finding = AgentFinding(
+            agent="compliance",
+            passed=False,
+            score=0.0,
+            issues=["No body text available for compliance review"],
+            recommendations=["Ensure the page has extractable text content"],
+        )
+        return {"findings": [finding], "agent_statuses": {"compliance": "done"}}
+
+    llm = create_agent_llm("compliance", validation_id=state.get("validation_id", ""))
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
