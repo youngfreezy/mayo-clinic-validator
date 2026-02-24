@@ -28,11 +28,20 @@ export interface RoutingInfo {
   routing_method: string;
 }
 
+export interface JudgeRecommendation {
+  recommendation: "approve" | "reject" | "needs_revision";
+  confidence: "high" | "medium" | "low";
+  key_concerns: string[];
+  strengths: string[];
+  rationale: string;
+}
+
 export type SSEEvent =
   | { type: "status"; data: { status: string; validation_id?: string } }
   | { type: "routing"; data: RoutingInfo }
   | { type: "agent_complete"; data: { agent: string; finding: AgentFinding | null } }
-  | { type: "hitl"; data: { validation_id: string; overall_score: number; overall_passed: boolean; findings: AgentFinding[]; skipped_agents?: string[]; routing_decision?: RoutingInfo } }
+  | { type: "judge"; data: JudgeRecommendation }
+  | { type: "hitl"; data: { validation_id: string; overall_score: number; overall_passed: boolean; findings: AgentFinding[]; skipped_agents?: string[]; routing_decision?: RoutingInfo; judge_recommendation?: JudgeRecommendation } }
   | { type: "done"; data: { status: string } }
   | { type: "error"; data: { message: string } }
   | { type: "ping" };
@@ -135,6 +144,12 @@ const AGENT_METHODOLOGY: Record<string, AgentMethodology> = {
     model: "Deterministic HTML scanner",
     methodology:
       "Scans raw HTML for self-closing or empty tags (e.g. <title/>) that should contain content. Only runs on HIL pages.",
+  },
+  judge: {
+    agentType: "LLM-as-a-Judge",
+    model: "GPT-4o-mini (JSON mode)",
+    methodology:
+      "Synthesizes all agent findings into a single recommendation (approve/reject/needs_revision) with confidence level and rationale.",
   },
 };
 

@@ -31,6 +31,7 @@ export function URLInputForm() {
     "https://www.mayoclinic.org/diseases-conditions/diabetes/symptoms-causes/syc-20371444",
     "https://www.mayoclinic.org/diseases-conditions/heart-disease/symptoms-causes/syc-20353118",
     "https://www.mayoclinic.org/diseases-conditions/high-blood-pressure/symptoms-causes/syc-20373410",
+    "https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/in-depth/cuts-of-beef/art-20043833",
   ];
 
   return (
@@ -111,6 +112,11 @@ export function URLInputForm() {
               disabled={loading}
             >
               {exUrl}
+              {exUrl.includes("healthy-lifestyle") && (
+                <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">
+                  HIL
+                </span>
+              )}
             </button>
           ))}
         </div>

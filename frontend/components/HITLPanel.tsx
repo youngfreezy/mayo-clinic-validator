@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { submitDecision, AgentFinding } from "@/lib/api";
+import { submitDecision, AgentFinding, JudgeRecommendation } from "@/lib/api";
 
 interface Props {
   validationId: string;
   overallScore: number;
   overallPassed: boolean;
   findings: AgentFinding[];
+  judgeRecommendation?: JudgeRecommendation | null;
   onDecisionSubmitted: () => void;
 }
 
@@ -16,6 +17,7 @@ export function HITLPanel({
   overallScore,
   overallPassed,
   findings,
+  judgeRecommendation,
   onDecisionSubmitted,
 }: Props) {
   const [feedback, setFeedback] = useState("");
@@ -93,6 +95,65 @@ export function HITLPanel({
           <div className="text-xs text-gray-500">Agents Passed</div>
         </div>
       </div>
+
+      {/* Judge Recommendation */}
+      {judgeRecommendation && (
+        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4" data-testid="judge-recommendation">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center">
+              <svg className="w-3 h-3 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <h4 className="text-sm font-semibold text-indigo-900">LLM Judge Recommendation</h4>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              judgeRecommendation.recommendation === "approve"
+                ? "bg-green-100 text-green-700"
+                : judgeRecommendation.recommendation === "reject"
+                ? "bg-red-100 text-red-700"
+                : "bg-yellow-100 text-yellow-700"
+            }`}>
+              {judgeRecommendation.recommendation.replace("_", " ")}
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              judgeRecommendation.confidence === "high"
+                ? "bg-indigo-100 text-indigo-700"
+                : judgeRecommendation.confidence === "medium"
+                ? "bg-gray-100 text-gray-600"
+                : "bg-gray-100 text-gray-500"
+            }`}>
+              {judgeRecommendation.confidence} confidence
+            </span>
+          </div>
+          <p className="text-xs text-indigo-800 mb-2">{judgeRecommendation.rationale}</p>
+          {judgeRecommendation.key_concerns.length > 0 && (
+            <div className="mb-1.5">
+              <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-0.5">Key Concerns</p>
+              <ul className="text-xs text-gray-700 space-y-0.5">
+                {judgeRecommendation.key_concerns.map((c, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="text-red-400 flex-shrink-0">!</span>
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {judgeRecommendation.strengths.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-0.5">Strengths</p>
+              <ul className="text-xs text-gray-700 space-y-0.5">
+                {judgeRecommendation.strengths.map((s, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="text-green-400 flex-shrink-0">+</span>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Feedback */}
       <div className="mb-4">

@@ -41,40 +41,55 @@ A multi-agent LangGraph content validation platform with human-in-the-loop (HITL
                               │  └──────────────────┘  │
                               └────────────┬───────────┘
                                            │
+                              ┌────────────▼───────────┐
+                              │      triage_node       │
+                              │  URL-based router      │
+                              │  HIL → 5 agents        │
+                              │  Standard → 4 agents   │
+                              └────────────┬───────────┘
+                                           │
                               dispatch_agents() — Send API
-                            ┌──────────────┼──────────────┐──────────────┐
-                            │              │              │              │
-               ┌────────────▼──┐ ┌─────────▼───┐ ┌──────▼──────┐ ┌────▼──────────┐
-               │ metadata_node │ │editorial_node│ │compliance_  │ │ accuracy_node  │
-               │               │ │              │ │node         │ │                │
-               │  GPT-4o       │ │  GPT-4o      │ │  GPT-4o     │ │ PGVector RAG  │
-               │               │ │              │ │             │ │ ──────────────│
-               │ Checks:       │ │ Checks:      │ │ Checks:     │ │ MMR retrieval │
-               │ • Meta desc   │ │ • H1-H4 hier.│ │ • No "cures"│ │ k=5 chunks   │
-               │ • Canonical   │ │ • Last review│ │ • Disclaimers│ │              │
-               │ • JSON-LD     │ │ • Attribution│ │ • FDA lang  │ │  GPT-4o      │
-               │ • OG tags     │ │ • Sections   │ │ • HIPAA     │ │ fact-checks  │
-               │               │ │ • Taxonomy   │ │ • Hedging   │ │ vs refs      │
-               └───────┬───────┘ └──────┬──────┘ └──────┬──────┘ └──────┬────────┘
-                       │                │               │               │
-               findings (Annotated[List, operator.add] reducer — all 4 merge correctly)
+                              (conditional based on routing_decision)
+                    ┌──────────┬───────────┼───────────┬──────────────┐
+                    │          │           │           │              │
+          ┌─────────▼──┐ ┌────▼─────┐ ┌───▼──────┐ ┌─▼───────────┐ ┌▼───────────┐
+          │ metadata   │ │editorial │ │compliance│ │accuracy     │ │empty_tag   │
+          │ _node      │ │_node     │ │_node     │ │_node        │ │_node       │
+          │            │ │          │ │          │ │             │ │(HIL only)  │
+          │  GPT-4o    │ │ GPT-4o   │ │ GPT-4o   │ │ PGVector RAG│ │ Regex scan │
+          │            │ │          │ │          │ │ ────────────│ │ raw HTML   │
+          │ • Meta desc│ │ • H1-H4  │ │ • No     │ │ MMR k=5    │ │            │
+          │ • Canonical│ │ • Review │ │  "cures" │ │ GPT-4o     │ │ • <title/> │
+          │ • JSON-LD  │ │ • Attrib│ │ • Discl. │ │ fact-check │ │ • <h1/>    │
+          │ • OG tags  │ │ • Sect. │ │ • FDA    │ │ vs refs    │ │ • <p/>     │
+          └─────┬──────┘ └───┬─────┘ └────┬─────┘ └─────┬──────┘ └─────┬──────┘
+                │            │            │              │    (cond.)   │
+                findings (Annotated[List, operator.add] reducer)
                                         │
                               ┌─────────▼──────────┐
                               │   aggregate_node   │
-                              │                    │
                               │ overall_score =    │
                               │ mean(all scores)   │
-                              │                    │
                               │ overall_passed =   │
                               │ all(passed)        │
+                              └─────────┬──────────┘
+                                        │
+                              ┌─────────▼──────────┐
+                              │    judge_node      │
+                              │ LLM-as-a-Judge     │
+                              │ (GPT-4o-mini)      │
+                              │ → approve/reject/  │
+                              │   needs_revision   │
+                              │ → confidence level │
                               └─────────┬──────────┘
                                         │
                               ┌─────────▼──────────┐
                               │  human_gate_node   │
                               │                    │
                               │  interrupt()  ◄────┼──── SSE: {type:"hitl"}
-                              │                    │         graph suspends
-                              │  MemorySaver       │         state persisted
+                              │  judge rec shown   │         graph suspends
+                              │  to reviewer       │         state persisted
+                              │  MemorySaver       │
                               │  checkpoints here  │
                               └────────┬───────────┘
                                        │ Command(resume={decision, feedback})
@@ -190,7 +205,7 @@ The `Annotated` reducers are **mandatory** for the `Send` API parallel fan-out. 
 | Layer | Technology |
 |-------|-----------|
 | Orchestration | LangGraph 1.0 (StateGraph, Send API, interrupt/Command) |
-| LLM | OpenAI GPT-4o (temperature=0, JSON response mode) |
+| LLM | OpenAI GPT-4o (agents) + GPT-4o-mini (judge) |
 | Vector DB | PostgreSQL 16 + pgvector (Docker) |
 | Embeddings | OpenAI text-embedding-3-small |
 | Web Scraping | httpx + BeautifulSoup4 + lxml |
@@ -294,14 +309,16 @@ PATH="/opt/homebrew/opt/node@20/bin:$PATH" npx playwright test
 
 ## Validation Agents
 
-| Agent | Checks | Pass Threshold |
-|-------|--------|---------------|
-| **Metadata** | Meta description length (150-160 chars), canonical URL, JSON-LD schema type, OG tags | ≥ 0.7 |
-| **Editorial** | H1-H4 hierarchy, last reviewed date (≤2 years), Mayo attribution, required sections | ≥ 0.7 |
-| **Compliance** | No absolute claims ("cures"), required disclaimers, FDA language, HIPAA concerns, hedging | ≥ 0.75 |
-| **Accuracy** | Medical fact-checking vs PGVector knowledge base (RAG) | ≥ 0.75 |
+| Agent | Checks | Pass Threshold | Routing |
+|-------|--------|---------------|---------|
+| **Metadata** | Meta description length (150-160 chars), canonical URL, JSON-LD schema type, OG tags | ≥ 0.7 | Always |
+| **Editorial** | H1-H4 hierarchy, last reviewed date (≤2 years), Mayo attribution, required sections | ≥ 0.7 | Always |
+| **Compliance** | No absolute claims ("cures"), required disclaimers, FDA language, HIPAA concerns, hedging | ≥ 0.75 | Always |
+| **Accuracy** | Medical fact-checking vs PGVector knowledge base (RAG) | ≥ 0.75 | Always |
+| **Empty Tag** | Self-closing/empty HTML tags (`<title/>`, `<h1></h1>`, etc.) | ≥ 0.8 | HIL only |
+| **Judge** | LLM-as-a-Judge meta-evaluator — synthesizes all findings into recommendation | N/A | Always |
 
-Overall pass = **all 4 agents pass**. Overall score = **mean of 4 agent scores**.
+Overall pass = **all dispatched agents pass**. Overall score = **mean of agent scores**. Judge provides recommendation to human reviewer.
 
 ---
 

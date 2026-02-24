@@ -7,6 +7,7 @@ import {
   AgentFinding,
   SSEEvent,
   RoutingInfo,
+  JudgeRecommendation,
 } from "@/lib/api";
 import { ValidationProgress } from "@/components/ValidationProgress";
 import { AgentResultCard } from "@/components/AgentResultCard";
@@ -30,6 +31,7 @@ export default function ResultsPage() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [skippedAgents, setSkippedAgents] = useState<Set<string>>(new Set());
   const [routingInfo, setRoutingInfo] = useState<RoutingInfo | null>(null);
+  const [judgeRecommendation, setJudgeRecommendation] = useState<JudgeRecommendation | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
 
@@ -52,6 +54,8 @@ export default function ResultsPage() {
         } else if (s.skipped_agents?.length) {
           setSkippedAgents(new Set(s.skipped_agents));
         }
+
+        if (s.judge_recommendation) setJudgeRecommendation(s.judge_recommendation);
 
         if (["approved", "rejected", "failed"].includes(s.status)) {
           // Already done — restore full state without opening SSE
@@ -118,6 +122,10 @@ export default function ResultsPage() {
           }
         }
 
+        if (event.type === "judge") {
+          setJudgeRecommendation(event.data);
+        }
+
         if (event.type === "hitl") {
           const { overall_score, overall_passed, findings: f } = event.data;
           setOverallScore(overall_score);
@@ -136,6 +144,9 @@ export default function ResultsPage() {
           }
           if (event.data.routing_decision) {
             setRoutingInfo(event.data.routing_decision);
+          }
+          if (event.data.judge_recommendation) {
+            setJudgeRecommendation(event.data.judge_recommendation);
           }
         }
 
@@ -233,8 +244,68 @@ export default function ResultsPage() {
               overallScore={hitlData.overall_score}
               overallPassed={hitlData.overall_passed}
               findings={hitlData.findings}
+              judgeRecommendation={judgeRecommendation}
               onDecisionSubmitted={() => setShowHITL(false)}
             />
+          )}
+
+          {/* Judge recommendation card (shown when not in HITL panel) */}
+          {judgeRecommendation && !showHITL && (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5" data-testid="judge-card">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-indigo-900">LLM Judge Recommendation</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  judgeRecommendation.recommendation === "approve"
+                    ? "bg-green-100 text-green-700"
+                    : judgeRecommendation.recommendation === "reject"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-yellow-100 text-yellow-700"
+                }`}>
+                  {judgeRecommendation.recommendation.replace("_", " ")}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  judgeRecommendation.confidence === "high"
+                    ? "bg-indigo-100 text-indigo-700"
+                    : "bg-gray-100 text-gray-600"
+                }`}>
+                  {judgeRecommendation.confidence} confidence
+                </span>
+              </div>
+              <p className="text-sm text-indigo-800 mb-3">{judgeRecommendation.rationale}</p>
+              <div className="grid grid-cols-2 gap-4">
+                {judgeRecommendation.key_concerns.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-1">Key Concerns</p>
+                    <ul className="text-xs text-gray-700 space-y-1">
+                      {judgeRecommendation.key_concerns.map((c, i) => (
+                        <li key={i} className="flex gap-1.5">
+                          <span className="text-red-400 flex-shrink-0 mt-0.5">!</span>
+                          <span>{c}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {judgeRecommendation.strengths.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-1">Strengths</p>
+                    <ul className="text-xs text-gray-700 space-y-1">
+                      {judgeRecommendation.strengths.map((s, i) => (
+                        <li key={i} className="flex gap-1.5">
+                          <span className="text-green-400 flex-shrink-0 mt-0.5">+</span>
+                          <span>{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* Agent result cards */}

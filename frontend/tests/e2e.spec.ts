@@ -72,7 +72,7 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
     await expect(page).toHaveURL(/\/results\/[0-9a-f-]{36}/, { timeout: 10000 });
 
     // Wait for at least one agent to complete (up to 3 minutes for GPT-4o calls)
-    await expect(page.getByText("Agent Findings")).toBeVisible({ timeout: 180000 });
+    await expect(page.getByRole("heading", { name: "Agent Findings" })).toBeVisible({ timeout: 180000 });
 
     // Check that agent result cards appear
     await expect(
@@ -94,6 +94,7 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
   });
 
   test("HITL panel allows approving content", async ({ page }) => {
+    test.setTimeout(240000);
     // First submit and wait for HITL
     await page.goto("/");
     await page.getByLabel("Mayo Clinic URL").fill(MAYO_URL);
@@ -111,7 +112,7 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
     // Click approve
     await page.getByRole("button", { name: /Approve for Publication/i }).click();
 
-    // Should eventually show approved
-    await expect(page.getByText(/approved for publication/i)).toBeVisible({ timeout: 30000 });
+    // Should eventually show approved (judge agent adds extra time)
+    await expect(page.getByText(/approved for publication/i)).toBeVisible({ timeout: 60000 });
   });
 });

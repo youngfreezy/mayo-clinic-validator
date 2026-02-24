@@ -76,5 +76,8 @@ class ValidationState(TypedDict):
     # LangSmith trace URL for this validation run
     trace_url: Optional[str]
 
+    # LLM-as-a-Judge recommendation (set by judge node after aggregate)
+    judge_recommendation: Optional[Dict[str, Any]]
+
     # Error accumulation — operator.add so parallel agents can each append errors
     errors: Annotated[List[str], operator.add]

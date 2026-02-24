@@ -14,6 +14,7 @@ from agents.editorial_agent import run_editorial_agent
 from agents.compliance_agent import run_compliance_agent
 from agents.accuracy_agent import run_accuracy_agent
 from agents.empty_tag_agent import run_empty_tag_agent
+from agents.judge_agent import run_judge_agent
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +150,7 @@ def build_graph() -> StateGraph:
     g.add_node("accuracy_node", run_accuracy_agent)
     g.add_node("empty_tag_node", run_empty_tag_agent)
     g.add_node("aggregate", aggregate_node)
+    g.add_node("judge", run_judge_agent)
     g.add_node("human_gate", human_gate_node)
     g.add_node("approve", approve_node)
     g.add_node("reject", reject_node)
@@ -171,8 +173,9 @@ def build_graph() -> StateGraph:
     for node in ALL_AGENT_NODES:
         g.add_edge(node, "aggregate")
 
-    # Linear from aggregate through HITL gate
-    g.add_edge("aggregate", "human_gate")
+    # Linear: aggregate → judge → human_gate
+    g.add_edge("aggregate", "judge")
+    g.add_edge("judge", "human_gate")
 
     # Conditional routing after human decision
     g.add_conditional_edges(

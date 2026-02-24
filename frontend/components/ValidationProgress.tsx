@@ -10,6 +10,7 @@ const STEPS = [
   { key: "compliance", label: "Regulatory Compliance", description: "FDA language, disclaimers, prohibited claims" },
   { key: "accuracy", label: "Medical Accuracy", description: "RAG fact-check against knowledge base" },
   { key: "empty_tag", label: "Empty Tag Check", description: "Scans raw HTML for self-closing/empty tags" },
+  { key: "judge", label: "LLM Judge", description: "Meta-evaluator synthesizes results into recommendation" },
   { key: "hitl", label: "Human Review", description: "Awaiting editorial approval" },
 ];
 
@@ -31,6 +32,14 @@ function stepMethodology(key: string): { agentType: string; model: string; metho
       model: "Deterministic rules (URL-based)",
       methodology:
         "Inspects the URL path to classify content type and determine which validation agents are needed. HIL pages get an extra empty-tag scan.",
+    };
+  }
+  if (key === "judge") {
+    return {
+      agentType: "LLM-as-a-Judge",
+      model: "GPT-4o-mini (JSON mode)",
+      methodology:
+        "Synthesizes all validation results into a single recommendation (approve/reject/needs_revision) with confidence level and rationale to assist the human reviewer.",
     };
   }
   return {
@@ -70,6 +79,12 @@ export function ValidationProgress({ status, completedAgents, agentPassed, skipp
       if (status === "pending" || status === "scraping") return "pending";
       if (status === "running" && !completedAgents.has(key)) return "running";
       if (completedAgents.has(key)) return "done";
+      return "pending";
+    }
+
+    if (key === "judge") {
+      if (status === "pending" || status === "scraping" || status === "running") return "pending";
+      if (status === "awaiting_human" || status === "approved" || status === "rejected") return "done";
       return "pending";
     }
 

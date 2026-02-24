@@ -58,9 +58,20 @@ async def _create_table() -> None:
                 routing_decision JSONB DEFAULT NULL,
                 skipped_agents JSONB DEFAULT '[]',
                 trace_url TEXT DEFAULT NULL,
+                judge_recommendation JSONB DEFAULT NULL,
                 updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        # Idempotent migrations — add columns that may be missing from older schemas
+        for col, defn in [
+            ("routing_decision", "JSONB DEFAULT NULL"),
+            ("skipped_agents", "JSONB DEFAULT '[]'"),
+            ("trace_url", "TEXT DEFAULT NULL"),
+            ("judge_recommendation", "JSONB DEFAULT NULL"),
+        ]:
+            await conn.execute(
+                f"ALTER TABLE validations ADD COLUMN IF NOT EXISTS {col} {defn}"
+            )
 
 
 async def upsert_validation(state: Dict[str, Any]) -> None:
@@ -73,6 +84,7 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
     errors_json = json.dumps(state.get("errors", []))
     routing_json = json.dumps(state.get("routing_decision")) if state.get("routing_decision") else None
     skipped_json = json.dumps(state.get("skipped_agents", []))
+    judge_json = json.dumps(state.get("judge_recommendation")) if state.get("judge_recommendation") else None
 
     async with pool.connection() as conn:
         await conn.execute("""
@@ -80,10 +92,11 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
                 (id, url, requested_by, created_at, status,
                  overall_score, overall_passed, findings, errors,
                  human_decision, human_feedback, reviewed_by,
-                 routing_decision, skipped_agents, trace_url, updated_at)
+                 routing_decision, skipped_agents, trace_url,
+                 judge_recommendation, updated_at)
             VALUES
                 (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s,
-                 %s::jsonb, %s::jsonb, %s, NOW())
+                 %s::jsonb, %s::jsonb, %s, %s::jsonb, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 status           = EXCLUDED.status,
                 overall_score    = EXCLUDED.overall_score,
@@ -96,6 +109,7 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
                 routing_decision = EXCLUDED.routing_decision,
                 skipped_agents   = EXCLUDED.skipped_agents,
                 trace_url        = EXCLUDED.trace_url,
+                judge_recommendation = EXCLUDED.judge_recommendation,
                 updated_at       = NOW()
         """, (
             state.get("validation_id"),
@@ -113,6 +127,7 @@ async def upsert_validation(state: Dict[str, Any]) -> None:
             routing_json,
             skipped_json,
             state.get("trace_url"),
+            judge_json,
         ))
 
 

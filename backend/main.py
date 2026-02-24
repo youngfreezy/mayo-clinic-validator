@@ -106,6 +106,7 @@ def _initial_state(vid: str, url: str, requested_by: str) -> Dict[str, Any]:
         "routing_decision": None,
         "skipped_agents": [],
         "trace_url": None,
+        "judge_recommendation": None,
         "errors": [],
     }
 
@@ -132,6 +133,7 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
     )
     emitted_agents[vid] = set()
     routing_emitted = False
+    judge_emitted = False
 
     try:
         await q.put({"type": "status", "data": {"status": "scraping", "validation_id": vid}})
@@ -180,6 +182,15 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         },
                     })
 
+            # Emit judge recommendation when judge completes
+            judge_rec = chunk.get("judge_recommendation")
+            if judge_rec and not judge_emitted:
+                judge_emitted = True
+                await q.put({
+                    "type": "judge",
+                    "data": judge_rec,
+                })
+
             # Emit HITL event when graph hits interrupt()
             if current_status == "awaiting_human":
                 findings = chunk.get("findings", [])
@@ -192,6 +203,7 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         "findings": [f.model_dump() for f in findings],
                         "skipped_agents": chunk.get("skipped_agents", []),
                         "routing_decision": chunk.get("routing_decision"),
+                        "judge_recommendation": chunk.get("judge_recommendation"),
                     },
                 })
                 # Graph is now suspended. Exit background task.
