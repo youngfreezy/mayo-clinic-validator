@@ -63,6 +63,159 @@ function RagAgentColumn() {
   );
 }
 
+/* ── Legend items with hover descriptions ─────────────────────────────── */
+
+const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
+  {
+    color: "bg-blue-600",
+    label: "Input / Scraping",
+    description:
+      "The entry point of the pipeline. A Mayo Clinic URL is submitted, then fetched using httpx and parsed with BeautifulSoup4. The scraper extracts structured data including the page title, meta description, JSON-LD schema markup, heading hierarchy, body text, Open Graph tags, canonical URL, internal/external links, and raw HTML. This structured content object is passed downstream to all validation agents.",
+  },
+  {
+    color: "bg-sky-500",
+    label: "Triage / Conditional",
+    description:
+      "A deterministic routing layer that inspects the URL path to classify the content type. Pages under /healthy-lifestyle/ are classified as HIL (Health Information Library) content and receive all five validation agents including the Empty Tag Check. Standard pages receive four agents. This avoids running unnecessary checks and keeps pipeline execution efficient.",
+  },
+  {
+    color: "bg-indigo-600",
+    label: "LLM Agents (GPT-4o)",
+    description:
+      "Four specialized GPT-4o agents run in parallel via LangGraph's Send API. Each agent receives the scraped content, evaluates it against domain-specific criteria, and returns a structured JSON finding with a pass/fail status, a 0\u20131 score, a list of passed checks, issues found, and recommendations. All agents use JSON mode with temperature 0 for deterministic output and a 120-second request timeout.",
+  },
+  {
+    color: "bg-purple-600",
+    label: "RAG (PGVector)",
+    description:
+      "The Accuracy Agent uses Retrieval-Augmented Generation to fact-check page content against a curated medical knowledge base. The page title and first 1,000 characters of body text are embedded using OpenAI\u2019s text-embedding-3-small model, then matched against PGVector using MMR (Maximal Marginal Relevance) search with k=5 results from 20 candidates and a lambda of 0.5 balancing relevance and diversity. The retrieved reference chunks are injected into the GPT-4o prompt for evidence-based fact-checking.",
+  },
+  {
+    color: "bg-violet-600",
+    label: "Aggregation",
+    description:
+      "After all dispatched agents complete, the aggregate node collects their findings via a LangGraph reducer (Annotated[List, operator.add]). It computes an overall_score as the mean of all agent scores and overall_passed as the logical AND of all agent pass statuses. This single summary is what the LLM Judge and human reviewer use to make their decision.",
+  },
+  {
+    color: "bg-fuchsia-600",
+    label: "LLM Judge (GPT-4o-mini)",
+    description:
+      "A meta-evaluator that synthesizes all agent findings into a single recommendation: approve, reject, or needs_revision. The judge uses GPT-4o-mini in JSON mode to produce a confidence level (high, medium, low) and a written rationale. This provides the human reviewer with an AI-generated second opinion before they make the final call, reducing review time while preserving editorial oversight.",
+  },
+  {
+    color: "bg-amber-500",
+    label: "Human-in-the-Loop",
+    description:
+      "The graph suspends execution using LangGraph\u2019s interrupt() primitive, and state is checkpointed to PostgreSQL via AsyncPostgresSaver so it survives server restarts. An SSE event of type \u2018hitl\u2019 is pushed to the frontend, which renders the HITL review panel with all findings, the judge recommendation, and approve/reject buttons. The reviewer can add written feedback before submitting their decision.",
+  },
+  {
+    color: "bg-green-600",
+    label: "Approve",
+    description:
+      "When the human reviewer approves the content, the graph resumes from the checkpoint. The approve node sets the validation status to \u2018approved\u2019, persists the final state to the database, and emits an SSE event of type \u2018done\u2019 with the reviewer\u2019s feedback. The frontend transitions to the final approved state with a full score summary.",
+  },
+  {
+    color: "bg-red-500",
+    label: "Reject",
+    description:
+      "When the reviewer rejects the content, the reject node sets status to \u2018rejected\u2019 and includes the reviewer\u2019s feedback explaining what needs to change. The content is flagged for revision by the editorial team. Like approval, this persists to the database and closes the SSE stream with a \u2018done\u2019 event.",
+  },
+];
+
+function LegendItem({ color, label, description }: { color: string; label: string; description: string }) {
+  return (
+    <div className="group/legend relative">
+      <span className="cursor-help flex items-center gap-1.5">
+        <span className={`inline-block w-3 h-3 rounded ${color} flex-shrink-0`} />
+        <span className="underline decoration-dotted decoration-gray-300 underline-offset-2">{label}</span>
+      </span>
+      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30 hidden w-80 rounded-xl border border-gray-200 bg-white p-4 shadow-lg group-hover/legend:block">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{label}</p>
+        <p className="text-xs leading-relaxed text-gray-700">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── RAG deep-dive section ───────────────────────────────────────────── */
+
+function RagArchitecture() {
+  return (
+    <div className="border border-purple-200 rounded-xl bg-gradient-to-b from-purple-50/50 to-white p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-3 h-3 rounded bg-purple-600" />
+        <h4 className="text-sm font-semibold text-gray-900">RAG Architecture — Accuracy Agent</h4>
+      </div>
+
+      {/* Flow diagram */}
+      <div className="flex flex-col items-center gap-1 text-xs">
+        <div className="flex items-center gap-4 w-full max-w-2xl">
+          {/* Left: query construction */}
+          <div className="flex-1 rounded-lg border border-gray-200 bg-white p-3 space-y-1.5">
+            <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">1. Query Construction</div>
+            <div className="text-gray-600">Page title + first 1,000 chars of body text are concatenated into a query string for retrieval.</div>
+          </div>
+          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          {/* Middle: embedding + retrieval */}
+          <div className="flex-1 rounded-lg border border-purple-200 bg-purple-50 p-3 space-y-1.5">
+            <div className="font-semibold text-purple-800 text-[11px] uppercase tracking-wide">2. Embedding &amp; Retrieval</div>
+            <div className="text-gray-600">
+              <span className="font-medium text-purple-700">text-embedding-3-small</span> embeds the query, then <span className="font-medium text-purple-700">PGVector</span> performs MMR search.
+            </div>
+            <div className="flex gap-2 mt-1 text-[10px]">
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">k=5</span>
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">fetch_k=20</span>
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">&lambda;=0.5</span>
+            </div>
+          </div>
+          <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          {/* Right: LLM evaluation */}
+          <div className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-1.5">
+            <div className="font-semibold text-indigo-800 text-[11px] uppercase tracking-wide">3. LLM Fact-Check</div>
+            <div className="text-gray-600">
+              <span className="font-medium text-indigo-700">GPT-4o</span> receives the retrieved reference chunks alongside the scraped content and evaluates medical accuracy.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Knowledge base details */}
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-1.5">Knowledge Base</div>
+          <div className="space-y-1 text-gray-600">
+            <div>8 curated medical topics</div>
+            <div>Chunked with RecursiveCharacterTextSplitter</div>
+            <div className="text-[10px] text-gray-400 font-mono">chunk_size=400 · overlap=80</div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-1.5">Topics Covered</div>
+          <div className="flex flex-wrap gap-1">
+            {["Diabetes", "Hypertension", "CAD", "Cancer Screening", "Depression", "COVID-19", "Editorial Standards"].map((t) => (
+              <span key={t} className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{t}</span>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-1.5">Vector Store</div>
+          <div className="space-y-1 text-gray-600">
+            <div>PostgreSQL 16 + pgvector</div>
+            <div className="text-[10px] text-gray-400 font-mono">collection: mayo_medical_knowledge</div>
+            <div className="text-[10px] text-gray-400 font-mono">driver: psycopg3 · JSONB metadata</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main export ─────────────────────────────────────────────────────── */
+
 export function PipelineDiagram() {
   return (
     <div className="space-y-6 text-xs">
@@ -108,6 +261,9 @@ export function PipelineDiagram() {
           threshold="≥ 0.8"
         />
       </div>
+
+      {/* RAG deep-dive */}
+      <RagArchitecture />
 
       {/* Reducer note */}
       <div className="flex flex-col items-center gap-1">
@@ -157,17 +313,16 @@ export function PipelineDiagram() {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="border-t border-gray-100 pt-4 flex flex-wrap gap-4 justify-center text-[11px] text-gray-500">
-        <span><span className="inline-block w-3 h-3 rounded bg-blue-600 mr-1 align-middle" />Input / Scraping</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-sky-500 mr-1 align-middle" />Triage / Conditional</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-indigo-600 mr-1 align-middle" />LLM Agents (GPT-4o)</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-purple-600 mr-1 align-middle" />RAG (PGVector)</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-violet-600 mr-1 align-middle" />Aggregation</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-fuchsia-600 mr-1 align-middle" />LLM Judge (GPT-4o-mini)</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-amber-500 mr-1 align-middle" />Human-in-the-Loop</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-green-600 mr-1 align-middle" />Approve</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-red-500 mr-1 align-middle" />Reject</span>
+      {/* Legend with hover descriptions */}
+      <div className="border-t border-gray-100 pt-5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 text-center mb-3">
+          Legend — hover for details
+        </p>
+        <div className="flex flex-wrap gap-x-5 gap-y-3 justify-center text-[11px] text-gray-500">
+          {LEGEND_ITEMS.map((item) => (
+            <LegendItem key={item.label} {...item} />
+          ))}
+        </div>
       </div>
     </div>
   );
