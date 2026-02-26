@@ -162,7 +162,7 @@ The **web scraper** (`backend/tools/web_scraper.py`) uses `httpx` + `BeautifulSo
 
 ### RAG Knowledge Base (PGVector)
 
-The **accuracy agent** uses Retrieval-Augmented Generation:
+The **accuracy agent** uses Retrieval-Augmented Generation to fact-check medical content against a curated knowledge base of verified Mayo Clinic reference material.
 
 ```
 Content body text
@@ -184,6 +184,51 @@ GPT-4o fact-checks content claims vs references
        ▼
 AgentFinding {passed, score, issues, recommendations}
 ```
+
+#### Seed Data
+
+All reference content lives in `backend/data/knowledge_base.json`. Each entry has a `content` field (the medical text) and a `metadata` object with `topic` and `source` tags. The knowledge base currently contains **9 entries** across **8 topics**:
+
+| Topic | Entries | What it covers |
+|-------|---------|---------------|
+| `diabetes` | 2 | Type 1 vs Type 2 definitions, symptoms, risk factors, A1C targets, treatment (insulin, metformin, SGLT2i, GLP-1 RA), monitoring (CGMs), complication prevention |
+| `hypertension` | 2 | BP classifications (normal through hypertensive crisis), risk factors, DASH diet, medication classes (ACE inhibitors, ARBs, CCBs, diuretics, beta-blockers), home monitoring |
+| `heart_disease` | 1 | CAD pathophysiology, angina and heart attack symptoms, atypical female presentation, door-to-balloon time, PCI/CABG/thrombolytics |
+| `cancer_screening` | 1 | Screening protocols for breast, colorectal, lung, prostate, cervical, and skin cancer with age thresholds and intervals |
+| `mental_health` | 1 | Depression and anxiety disorder definitions, DSM-5 criteria, PHQ-9 screening, treatment (CBT, SSRIs/SNRIs, TMS, ECT, ketamine), suicide prevention (988 Lifeline) |
+| `mayo_editorial_standards` | 1 | Reading level targets (Flesch-Kincaid 6-8), attribution rules, 2-year review cycle, prohibited language ("cures", "guarantees"), required page elements (H1, meta description, JSON-LD, canonical URL) |
+| `covid19` | 1 | SARS-CoV-2 symptoms, Long COVID, vaccine types and booster schedule, Paxlovid/remdesivir treatment, airborne transmission |
+
+To add new topics, append entries to `knowledge_base.json` following the same `{ "content": "...", "metadata": { "topic": "...", "source": "mayo_clinic" } }` structure, then re-run the seed script.
+
+#### Seeding Process
+
+The seed script (`backend/scripts/seed_knowledge.py`) transforms raw knowledge entries into searchable vector embeddings:
+
+1. **Load** -- reads all entries from `knowledge_base.json`
+2. **Chunk** -- splits each entry with `RecursiveCharacterTextSplitter` using separators `["\n\n", "\n", ". ", " "]`, chunk size of 400 characters, and 80-character overlap to preserve context across boundaries
+3. **Embed** -- generates vector embeddings for each chunk using OpenAI `text-embedding-3-small` (1536 dimensions)
+4. **Store** -- writes chunks + embeddings into a PGVector collection named `mayo_medical_knowledge` in PostgreSQL 16 with `use_jsonb=True` for efficient metadata filtering. The script sets `pre_delete_collection=True`, so each run wipes and re-seeds from scratch
+
+```bash
+cd backend
+source venv/bin/activate
+python scripts/seed_knowledge.py   # ~30 seconds (OpenAI embedding calls)
+```
+
+The database runs in Docker (`pgvector/pgvector:pg16`) on port 5433. The `init-pgvector.sql` init script enables the `vector` extension on first container start.
+
+#### Retrieval at Query Time
+
+When the accuracy agent runs (`backend/agents/accuracy_agent.py`), it:
+
+1. Builds a query string from the page title + first 1000 characters of body text
+2. Calls `get_retriever(k=5)` from `backend/tools/rag_retriever.py`, which creates a PGVector retriever configured for **MMR (Maximal Marginal Relevance)** search
+3. MMR balances relevance with diversity -- it fetches 20 candidate chunks (`fetch_k=20`), then selects the top 5 (`k=5`) using `lambda_mult=0.5` (equal weight to relevance and diversity), reducing redundancy when multiple chunks from the same entry match
+4. Retrieved chunks are formatted as numbered references and injected into the GPT-4o prompt alongside the page content
+5. GPT-4o compares the page's medical claims against the references, returning a score (0.0-1.0), pass/fail determination (threshold >= 0.75), specific issues found, and recommendations
+
+If the knowledge base is unreachable or returns no relevant results, the agent scores 0.7 and notes the limitation rather than failing outright.
 
 ### State Design (LangGraph TypedDict + Annotated Reducers)
 
