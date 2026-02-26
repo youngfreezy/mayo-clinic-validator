@@ -70,55 +70,55 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
     color: "bg-blue-600",
     label: "Input / Scraping",
     description:
-      "The entry point of the pipeline. A Mayo Clinic URL is submitted, then fetched using httpx and parsed with BeautifulSoup4. The scraper extracts structured data including the page title, meta description, JSON-LD schema markup, heading hierarchy, body text, Open Graph tags, canonical URL, internal/external links, and raw HTML. This structured content object is passed downstream to all validation agents.",
+      "The entry point of the pipeline. A Mayo Clinic URL is submitted, then fetched using httpx (an async Python HTTP client) and parsed with BeautifulSoup4 (a Python library for extracting data from HTML). The scraper extracts structured data including the page title, meta description, JSON-LD (JavaScript Object Notation for Linked Data \u2014 a structured data format search engines use to understand page content), heading hierarchy, body text, Open Graph tags (metadata that controls how URLs appear when shared on social media), canonical URL (the preferred version of a page to prevent duplicate content issues), internal/external links, and raw HTML.",
   },
   {
     color: "bg-sky-500",
     label: "Triage / Conditional",
     description:
-      "A deterministic routing layer that inspects the URL path to classify the content type. Pages under /healthy-lifestyle/ are classified as HIL (Health Information Library) content and receive all five validation agents including the Empty Tag Check. Standard pages receive four agents. This avoids running unnecessary checks and keeps pipeline execution efficient.",
+      "A deterministic routing layer that inspects the URL path to classify the content type. Pages under /healthy-lifestyle/ are classified as HIL (Health Information Library) content and receive all five validation agents, including the Empty Tag Check. Standard pages receive four agents. This routing is rule-based (not AI-driven), so it adds no latency or cost. It avoids running unnecessary checks and keeps pipeline execution efficient.",
   },
   {
     color: "bg-indigo-600",
     label: "LLM Agents (GPT-4o)",
     description:
-      "Four specialized GPT-4o agents run in parallel via LangGraph's Send API. Each agent receives the scraped content, evaluates it against domain-specific criteria, and returns a structured JSON finding with a pass/fail status, a 0\u20131 score, a list of passed checks, issues found, and recommendations. All agents use JSON mode with temperature 0 for deterministic output and a 120-second request timeout.",
+      "Four specialized LLM (Large Language Model) agents powered by OpenAI\u2019s GPT-4o run in parallel via LangGraph\u2019s Send API (a mechanism for fanning out work to multiple nodes simultaneously). Each agent receives the scraped content, evaluates it against domain-specific criteria, and returns a structured JSON finding with a pass/fail status, a 0\u20131 confidence score, a list of passed checks, issues found, and recommendations. All agents use JSON mode (which constrains the model to only output valid JSON) with temperature 0 (making output deterministic rather than random) and a 120-second request timeout.",
   },
   {
     color: "bg-purple-600",
-    label: "RAG (PGVector)",
+    label: "RAG (Retrieval-Augmented Generation)",
     description:
-      "The Accuracy Agent uses Retrieval-Augmented Generation to fact-check page content against a curated medical knowledge base. The page title and first 1,000 characters of body text are embedded using OpenAI\u2019s text-embedding-3-small model, then matched against PGVector using MMR (Maximal Marginal Relevance) search with k=5 results from 20 candidates and a lambda of 0.5 balancing relevance and diversity. The retrieved reference chunks are injected into the GPT-4o prompt for evidence-based fact-checking.",
+      "RAG (Retrieval-Augmented Generation) is a technique where an LLM is given relevant reference documents retrieved from a knowledge base before generating its answer, grounding its output in real data rather than relying on training knowledge alone. The Accuracy Agent uses RAG to fact-check page content: the page title and first 1,000 characters are converted into a numerical vector (an embedding) using OpenAI\u2019s text-embedding-3-small model, then matched against a PGVector database (PostgreSQL with the pgvector extension for storing and searching vector embeddings) using MMR (Maximal Marginal Relevance) search \u2014 an algorithm that balances finding the most relevant results with ensuring diversity so the retrieved chunks don\u2019t all say the same thing. The top 5 reference chunks are then injected into the GPT-4o prompt for evidence-based medical fact-checking.",
   },
   {
     color: "bg-violet-600",
     label: "Aggregation",
     description:
-      "After all dispatched agents complete, the aggregate node collects their findings via a LangGraph reducer (Annotated[List, operator.add]). It computes an overall_score as the mean of all agent scores and overall_passed as the logical AND of all agent pass statuses. This single summary is what the LLM Judge and human reviewer use to make their decision.",
+      "After all dispatched agents complete, the aggregate node collects their findings via a LangGraph reducer \u2014 a function that merges results from parallel branches back into a single state. It computes an overall_score as the arithmetic mean of all individual agent scores, and overall_passed as the logical AND of all agent pass statuses (meaning every agent must pass for the overall result to pass). This single summary is what the LLM Judge and human reviewer use to make their decision.",
   },
   {
     color: "bg-fuchsia-600",
     label: "LLM Judge (GPT-4o-mini)",
     description:
-      "A meta-evaluator that synthesizes all agent findings into a single recommendation: approve, reject, or needs_revision. The judge uses GPT-4o-mini in JSON mode to produce a confidence level (high, medium, low) and a written rationale. This provides the human reviewer with an AI-generated second opinion before they make the final call, reducing review time while preserving editorial oversight.",
+      "A meta-evaluator that synthesizes all agent findings into a single recommendation: approve, reject, or needs_revision. The judge uses GPT-4o-mini (a smaller, faster, cheaper variant of GPT-4o optimized for structured evaluation tasks) in JSON mode to produce a confidence level (high, medium, or low) and a written rationale explaining its reasoning. This provides the human reviewer with an AI-generated second opinion before they make the final call, reducing review time while preserving editorial oversight.",
   },
   {
     color: "bg-amber-500",
-    label: "Human-in-the-Loop",
+    label: "Human-in-the-Loop (HITL)",
     description:
-      "The graph suspends execution using LangGraph\u2019s interrupt() primitive, and state is checkpointed to PostgreSQL via AsyncPostgresSaver so it survives server restarts. An SSE event of type \u2018hitl\u2019 is pushed to the frontend, which renders the HITL review panel with all findings, the judge recommendation, and approve/reject buttons. The reviewer can add written feedback before submitting their decision.",
+      "HITL (Human-in-the-Loop) means a human must review and approve the AI\u2019s output before it becomes final. The graph suspends execution using LangGraph\u2019s interrupt() primitive (a built-in mechanism that pauses a running graph mid-execution), and the full pipeline state is checkpointed (saved) to PostgreSQL via AsyncPostgresSaver so it survives server restarts. An SSE (Server-Sent Events \u2014 a protocol for the server to push real-time updates to the browser) event is pushed to the frontend, which renders the review panel with all findings, the judge recommendation, and approve/reject buttons. The reviewer can add written feedback before submitting their decision.",
   },
   {
     color: "bg-green-600",
     label: "Approve",
     description:
-      "When the human reviewer approves the content, the graph resumes from the checkpoint. The approve node sets the validation status to \u2018approved\u2019, persists the final state to the database, and emits an SSE event of type \u2018done\u2019 with the reviewer\u2019s feedback. The frontend transitions to the final approved state with a full score summary.",
+      "When the human reviewer approves the content, the graph resumes from the saved checkpoint. The approve node sets the validation status to \u2018approved\u2019, persists the final state to the PostgreSQL database, and emits an SSE (Server-Sent Events) notification of type \u2018done\u2019 that includes the reviewer\u2019s feedback. The frontend receives this event in real time and transitions to the final approved state, displaying a full score summary across all agents.",
   },
   {
     color: "bg-red-500",
     label: "Reject",
     description:
-      "When the reviewer rejects the content, the reject node sets status to \u2018rejected\u2019 and includes the reviewer\u2019s feedback explaining what needs to change. The content is flagged for revision by the editorial team. Like approval, this persists to the database and closes the SSE stream with a \u2018done\u2019 event.",
+      "When the reviewer rejects the content, the reject node sets the status to \u2018rejected\u2019 and records the reviewer\u2019s feedback explaining what needs to change. The content is flagged for revision by the editorial team. Like approval, the final state is persisted to PostgreSQL and the browser receives a real-time SSE (Server-Sent Events) notification closing the validation stream.",
   },
 ];
 
@@ -144,7 +144,7 @@ function RagArchitecture() {
     <div className="border border-purple-200 rounded-xl bg-gradient-to-b from-purple-50/50 to-white p-5 space-y-4">
       <div className="flex items-center gap-2">
         <span className="inline-block w-3 h-3 rounded bg-purple-600" />
-        <h4 className="text-sm font-semibold text-gray-900">RAG Architecture — Accuracy Agent</h4>
+        <h4 className="text-sm font-semibold text-gray-900">RAG (Retrieval-Augmented Generation) Architecture — Accuracy Agent</h4>
       </div>
 
       {/* Flow diagram */}
@@ -162,12 +162,12 @@ function RagArchitecture() {
           <div className="flex-1 rounded-lg border border-purple-200 bg-purple-50 p-3 space-y-1.5">
             <div className="font-semibold text-purple-800 text-[11px] uppercase tracking-wide">2. Embedding &amp; Retrieval</div>
             <div className="text-gray-600">
-              <span className="font-medium text-purple-700">text-embedding-3-small</span> embeds the query, then <span className="font-medium text-purple-700">PGVector</span> performs MMR search.
+              <span className="font-medium text-purple-700">text-embedding-3-small</span> converts the query into a vector embedding, then <span className="font-medium text-purple-700">PGVector</span> performs MMR (Maximal Marginal Relevance) search.
             </div>
             <div className="flex gap-2 mt-1 text-[10px]">
-              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">k=5</span>
-              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">fetch_k=20</span>
-              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">&lambda;=0.5</span>
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">k=5 (return 5 results)</span>
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">fetch_k=20 (consider 20 candidates)</span>
+              <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono">&lambda;=0.5 (balance relevance &amp; diversity)</span>
             </div>
           </div>
           <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
