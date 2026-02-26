@@ -1,6 +1,6 @@
+import Link from "next/link";
 import { URLInputForm } from "@/components/URLInputForm";
 import { ValidationHistoryTable } from "@/components/ValidationHistoryTable";
-import { PipelineArchitectureModal } from "@/components/PipelineArchitectureModal";
 
 export default function HomePage() {
   return (
@@ -19,7 +19,16 @@ export default function HomePage() {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
             Pipeline Architecture
           </p>
-          <PipelineArchitectureModal />
+          <Link
+            href="/pipeline"
+            className="ml-2 text-gray-400 hover:text-mayo-blue transition-colors"
+            title="View full architecture diagram"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth={2} />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+          </Link>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-xs">
           {[
