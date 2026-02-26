@@ -71,7 +71,7 @@ test.describe("Mayo Clinic Content Validator — E2E", () => {
     await page.getByRole("button", { name: "Validate" }).click();
     await expect(page).toHaveURL(/\/results\/[0-9a-f-]{36}/, { timeout: 10000 });
 
-    // Wait for at least one agent to complete (up to 3 minutes for GPT-4o calls)
+    // Wait for at least one agent to complete (up to 3 minutes for GPT-5.1 calls)
     await expect(page.getByRole("heading", { name: "Agent Findings" })).toBeVisible({ timeout: 180000 });
 
     // Check that agent result cards appear

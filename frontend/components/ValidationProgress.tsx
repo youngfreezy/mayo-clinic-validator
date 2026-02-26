@@ -37,7 +37,7 @@ function stepMethodology(key: string): { agentType: string; model: string; metho
   if (key === "judge") {
     return {
       agentType: "LLM-as-a-Judge",
-      model: "GPT-4o-mini (JSON mode)",
+      model: "GPT-5-mini (JSON mode)",
       methodology:
         "Synthesizes all validation results into a single recommendation (approve/reject/needs_revision) with confidence level and rationale to assist the human reviewer.",
     };

@@ -13,7 +13,7 @@ from config.settings import settings
 def create_agent_llm(
     agent_name: str,
     validation_id: str = "",
-    model: str = "gpt-4o",
+    model: str = "gpt-5.1",
     temperature: float = 0,
     json_mode: bool = True,
     request_timeout: float = 120.0,

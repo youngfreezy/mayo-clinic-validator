@@ -103,7 +103,7 @@ async def run_judge_agent(state: ValidationState) -> dict:
             "status": "awaiting_human",
         }
 
-    llm = create_agent_llm("judge", validation_id=state.get("validation_id", ""), model="gpt-4o-mini")
+    llm = create_agent_llm("judge", validation_id=state.get("validation_id", ""), model="gpt-5-mini")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),

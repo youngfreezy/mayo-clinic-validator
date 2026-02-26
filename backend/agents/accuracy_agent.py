@@ -2,7 +2,7 @@
 Accuracy Agent — fact-checks medical claims against the RAG knowledge base.
 
 Uses PGVector (MMR retrieval) to fetch relevant Mayo Clinic medical facts,
-then asks GPT-4o to compare the content claims against retrieved references.
+then asks GPT-5.1 to compare the content claims against retrieved references.
 
 This is a single LLM call with retrieved context (rather than full ReAct loop)
 to keep it deterministic and avoid infinite tool loops inside a Send branch.

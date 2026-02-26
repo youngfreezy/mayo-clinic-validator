@@ -56,7 +56,7 @@ function RagAgentColumn() {
         <div className="text-gray-400">↓</div>
         <div className="text-gray-600">Medical reference chunks</div>
         <div className="text-gray-400">↓</div>
-        <div className="text-gray-600">GPT-4o fact-check</div>
+        <div className="text-gray-600">GPT-5.1 fact-check</div>
         <div className="text-gray-400 font-medium mt-1">Pass: ≥ 0.75</div>
       </div>
     </div>
@@ -80,15 +80,15 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
   },
   {
     color: "bg-indigo-600",
-    label: "LLM Agents (GPT-4o)",
+    label: "LLM Agents (GPT-5.1)",
     description:
-      "Four specialized LLM (Large Language Model) agents powered by OpenAI\u2019s GPT-4o run in parallel via LangGraph\u2019s Send API (a mechanism for fanning out work to multiple nodes simultaneously). Each agent receives the scraped content, evaluates it against domain-specific criteria, and returns a structured JSON finding with a pass/fail status, a 0\u20131 confidence score, a list of passed checks, issues found, and recommendations. All agents use JSON mode (which constrains the model to only output valid JSON) with temperature 0 (making output deterministic rather than random) and a 120-second request timeout.",
+      "Four specialized LLM (Large Language Model) agents powered by OpenAI\u2019s GPT-5.1 run in parallel via LangGraph\u2019s Send API (a mechanism for fanning out work to multiple nodes simultaneously). Each agent receives the scraped content, evaluates it against domain-specific criteria, and returns a structured JSON finding with a pass/fail status, a 0\u20131 confidence score, a list of passed checks, issues found, and recommendations. All agents use JSON mode (which constrains the model to only output valid JSON) with temperature 0 (making output deterministic rather than random) and a 120-second request timeout.",
   },
   {
     color: "bg-purple-600",
     label: "RAG (Retrieval-Augmented Generation)",
     description:
-      "RAG (Retrieval-Augmented Generation) is a technique where an LLM is given relevant reference documents retrieved from a knowledge base before generating its answer, grounding its output in real data rather than relying on training knowledge alone. The Accuracy Agent uses RAG to fact-check page content: the page title and first 1,000 characters are converted into a numerical vector (an embedding) using OpenAI\u2019s text-embedding-3-small model, then matched against a PGVector database (PostgreSQL with the pgvector extension for storing and searching vector embeddings) using MMR (Maximal Marginal Relevance) search \u2014 an algorithm that balances finding the most relevant results with ensuring diversity so the retrieved chunks don\u2019t all say the same thing. The top 5 reference chunks are then injected into the GPT-4o prompt for evidence-based medical fact-checking.",
+      "RAG (Retrieval-Augmented Generation) is a technique where an LLM is given relevant reference documents retrieved from a knowledge base before generating its answer, grounding its output in real data rather than relying on training knowledge alone. The Accuracy Agent uses RAG to fact-check page content: the page title and first 1,000 characters are converted into a numerical vector (an embedding) using OpenAI\u2019s text-embedding-3-small model, then matched against a PGVector database (PostgreSQL with the pgvector extension for storing and searching vector embeddings) using MMR (Maximal Marginal Relevance) search \u2014 an algorithm that balances finding the most relevant results with ensuring diversity so the retrieved chunks don\u2019t all say the same thing. The top 5 reference chunks are then injected into the GPT-5.1 prompt for evidence-based medical fact-checking.",
   },
   {
     color: "bg-violet-600",
@@ -98,9 +98,9 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
   },
   {
     color: "bg-fuchsia-600",
-    label: "LLM Judge (GPT-4o-mini)",
+    label: "LLM Judge (GPT-5-mini)",
     description:
-      "A meta-evaluator that synthesizes all agent findings into a single recommendation: approve, reject, or needs_revision. The judge uses GPT-4o-mini (a smaller, faster, cheaper variant of GPT-4o optimized for structured evaluation tasks) in JSON mode to produce a confidence level (high, medium, or low) and a written rationale explaining its reasoning. This provides the human reviewer with an AI-generated second opinion before they make the final call, reducing review time while preserving editorial oversight.",
+      "A meta-evaluator that synthesizes all agent findings into a single recommendation: approve, reject, or needs_revision. The judge uses GPT-5-mini (a smaller, faster, cheaper variant of GPT-5.1 optimized for structured evaluation tasks) in JSON mode to produce a confidence level (high, medium, or low) and a written rationale explaining its reasoning. This provides the human reviewer with an AI-generated second opinion before they make the final call, reducing review time while preserving editorial oversight.",
   },
   {
     color: "bg-amber-500",
@@ -177,10 +177,28 @@ function RagArchitecture() {
           <div className="flex-1 rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-1.5">
             <div className="font-semibold text-indigo-800 text-[11px] uppercase tracking-wide">3. LLM Fact-Check</div>
             <div className="text-gray-600">
-              <span className="font-medium text-indigo-700">GPT-4o</span> receives the retrieved reference chunks alongside the scraped content and evaluates medical accuracy.
+              <span className="font-medium text-indigo-700">GPT-5.1</span> receives the retrieved reference chunks alongside the scraped content and evaluates medical accuracy.
             </div>
           </div>
         </div>
+      </div>
+
+      {/* How the knowledge base is seeded */}
+      <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs">
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-1.5">How the Knowledge Base is Built</div>
+        <p className="text-gray-600 leading-relaxed">
+          Before the pipeline can fact-check anything, it needs a library of trusted medical facts to compare against.
+          This library is created by a one-time seeding script that runs automatically when the server starts.
+          It reads a curated JSON file containing 8 medical topics written by hand (covering conditions like diabetes,
+          hypertension, and cancer screening guidelines, plus Mayo Clinic editorial standards). Each topic is then
+          split into small, overlapping text chunks (around 400 characters each, with 80 characters of overlap so no
+          sentence gets cut off mid-thought). Every chunk is converted into a numerical &ldquo;embedding&rdquo; &mdash; a
+          list of numbers that captures the meaning of the text &mdash; using OpenAI&rsquo;s text-embedding-3-small model.
+          These embeddings are stored in a PostgreSQL database with the pgvector extension, which lets the system
+          quickly find the chunks most relevant to any given page. When a Mayo Clinic page is validated, the pipeline
+          searches this library to retrieve the 5 most relevant reference chunks, which the AI then uses as evidence
+          to verify the page&rsquo;s medical claims.
+        </p>
       </div>
 
       {/* Knowledge base details */}
@@ -284,7 +302,7 @@ export function PipelineDiagram() {
         {/* Row 3.5 — LLM Judge */}
         <Node
           label="LLM Judge"
-          sublabel="GPT-4o-mini (JSON mode) · synthesizes all findings → approve / reject / needs_revision · confidence + rationale"
+          sublabel="GPT-5-mini (JSON mode) · synthesizes all findings → approve / reject / needs_revision · confidence + rationale"
           color="fuchsia"
           wide
         />
