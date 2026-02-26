@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PipelineDiagram } from "@/components/PipelineDiagram";
+import { CopyLinkButton } from "@/components/CopyLinkButton";
 
 export const metadata = {
   title: "Pipeline Architecture — Mayo Clinic Content Validator",
@@ -27,13 +28,16 @@ export default function PipelinePage() {
 
       {/* Page content */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">
-            Pipeline Architecture
-          </h2>
-          <p className="text-xs text-gray-500 mt-1">
-            LangGraph validation pipeline with parallel agent dispatch, LLM judge, and human-in-the-loop review
-          </p>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              Pipeline Architecture
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              LangGraph validation pipeline with parallel agent dispatch, LLM judge, and human-in-the-loop review
+            </p>
+          </div>
+          <CopyLinkButton />
         </div>
         <div className="p-6">
           <PipelineDiagram />
