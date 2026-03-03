@@ -43,12 +43,16 @@ async def triage_node(state: ValidationState) -> dict:
     probe = await get_rules_for_agent("metadata", content_type)
     rules_source = probe.source if probe else "json"
 
+    rules_version = get_rules_version()
+
     return {
         "routing_decision": {
             "agents_to_run": agents_to_run,
             "agents_skipped": agents_skipped,
             "content_type": content_type,
             "routing_method": "url_based",
+            "rules_source": rules_source,
+            "rules_version": rules_version,
             "reasoning": {
                 "empty_tag": "run:hil_content" if is_hil
                 else "skip:not_hil_content",
@@ -56,6 +60,6 @@ async def triage_node(state: ValidationState) -> dict:
         },
         "skipped_agents": agents_skipped,
         "status": "running",
-        "rules_version": get_rules_version(),
+        "rules_version": rules_version,
         "rules_source": rules_source,
     }

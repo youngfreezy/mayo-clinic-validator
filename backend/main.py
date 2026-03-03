@@ -26,10 +26,17 @@ Persistence:
 
 import asyncio
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Dict, Any
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

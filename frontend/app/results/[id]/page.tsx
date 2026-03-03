@@ -126,9 +126,15 @@ export default function ResultsPage() {
         if (s.overall_score !== null) setOverallScore(s.overall_score);
         if (s.overall_passed !== null) setOverallPassed(s.overall_passed);
 
-        // Restore routing info from persisted state
+        // Restore routing info from persisted state, enriching with
+        // top-level rules_source/rules_version (older records may not
+        // have these inside routing_decision itself).
         if (s.routing_decision) {
-          setRoutingInfo(s.routing_decision);
+          setRoutingInfo({
+            ...s.routing_decision,
+            rules_source: s.routing_decision.rules_source || s.rules_source,
+            rules_version: s.routing_decision.rules_version || s.rules_version,
+          });
           setSkippedAgents(new Set(s.routing_decision.agents_skipped || []));
         } else if (s.skipped_agents?.length) {
           setSkippedAgents(new Set(s.skipped_agents));
