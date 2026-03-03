@@ -10,7 +10,7 @@ Routing rules (scoped):
 from typing import Dict, Any, List
 
 from pipeline.state import ValidationState
-from rules.loader import get_rules_version
+from rules.loader import get_rules_for_agent, get_rules_version
 
 ALL_STANDARD_AGENTS = ["metadata", "editorial", "compliance", "accuracy"]
 HIL_EXTRA_AGENTS = ["empty_tag"]
@@ -39,6 +39,10 @@ async def triage_node(state: ValidationState) -> dict:
         agents_skipped = HIL_EXTRA_AGENTS
         content_type = "standard"
 
+    # Probe one agent to determine if Neo4j or JSON is being used
+    probe = await get_rules_for_agent("metadata", content_type)
+    rules_source = probe.source if probe else "json"
+
     return {
         "routing_decision": {
             "agents_to_run": agents_to_run,
@@ -53,4 +57,5 @@ async def triage_node(state: ValidationState) -> dict:
         "skipped_agents": agents_skipped,
         "status": "running",
         "rules_version": get_rules_version(),
+        "rules_source": rules_source,
     }

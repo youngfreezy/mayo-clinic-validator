@@ -420,7 +420,7 @@ export default function ResultsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35, ease: "easeOut" }}
                 >
-                  <AgentResultCard finding={f} />
+                  <AgentResultCard finding={f} rulesSource={routingInfo?.rules_source} rulesVersion={routingInfo?.rules_version} />
                 </motion.div>
               ))}
             </AnimatePresence>

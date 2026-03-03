@@ -57,6 +57,19 @@ export function ScoreSummary({ overallScore, overallPassed, status, url, routing
                 HIL Content
               </span>
             )}
+            {routingInfo?.rules_source && (
+              <span
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  routingInfo.rules_source === "neo4j"
+                    ? "bg-cyan-100 text-cyan-700"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+                title={`Validation rules loaded from ${routingInfo.rules_source === "neo4j" ? "Neo4j graph database" : "local JSON file"}${routingInfo.rules_version ? ` (v${routingInfo.rules_version})` : ""}`}
+              >
+                Rules: {routingInfo.rules_source === "neo4j" ? "Neo4j Graph" : "JSON Fallback"}
+                {routingInfo.rules_version ? ` v${routingInfo.rules_version}` : ""}
+              </span>
+            )}
           </div>
         </div>
 

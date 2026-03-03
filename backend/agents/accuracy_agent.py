@@ -16,6 +16,7 @@ from pipeline.state import ValidationState, AgentFinding
 from tools.rag_retriever import get_retriever
 from agents.llm_factory import create_agent_llm
 from rules.loader import get_rules_for_agent
+from agents.ragas_eval import run_ragas_eval
 
 SYSTEM_PROMPT = """You are a medical accuracy reviewer for Mayo Clinic.
 You have been provided with verified medical reference documents from Mayo Clinic's knowledge base.
@@ -85,12 +86,14 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
 
     # Retrieve relevant references from PGVector knowledge base
     references_text = "No references available in knowledge base."
+    retrieved_chunks: list[str] = []
     try:
         retriever = get_retriever(k=5)
         docs = await asyncio.to_thread(retriever.invoke, query)
         if docs:
+            retrieved_chunks = [doc.page_content for doc in docs]
             references_text = "\n\n---\n\n".join(
-                f"[Ref {i+1}] {doc.page_content}" for i, doc in enumerate(docs)
+                f"[Ref {i+1}] {chunk}" for i, chunk in enumerate(retrieved_chunks)
             )
     except Exception as e:
         references_text = f"Knowledge base unavailable: {str(e)}"
@@ -114,6 +117,16 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
         })
 
         result = json.loads(response.content)
+
+        # Run RAGAS evaluation on the RAG pipeline output
+        ragas_scores = None
+        if retrieved_chunks:
+            ragas_scores = await run_ragas_eval(
+                question=query,
+                answer=response.content,
+                contexts=retrieved_chunks,
+            )
+
         finding = AgentFinding(
             agent="accuracy",
             passed=result.get("passed", False),
@@ -121,6 +134,7 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
             passed_checks=result.get("passed_checks", []),
             issues=result.get("issues", []),
             recommendations=result.get("recommendations", []),
+            ragas_scores=ragas_scores,
         )
     except Exception as e:
         finding = AgentFinding(

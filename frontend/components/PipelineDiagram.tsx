@@ -173,6 +173,12 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
     description:
       "When the reviewer clicks 'Reject', the reject node sets the status to 'rejected' and records the reviewer\u2019s written feedback explaining what needs to change. The content is flagged for revision by the editorial team. Like approval, the final state is persisted to PostgreSQL and the browser receives a real-time SSE event closing the validation stream. The rejection feedback is stored alongside all agent findings so the editorial team can see both the AI analysis and the human reviewer\u2019s specific concerns when revising the content.",
   },
+  {
+    color: "bg-rose-500",
+    label: "RAGAS (RAG Assessment)",
+    description:
+      "RAGAS (Retrieval-Augmented Generation Assessment) is an open-source framework that evaluates RAG pipelines using four standardized metrics: Faithfulness (are LLM claims supported by retrieved evidence?), Answer Relevancy (is the output on-topic?), Context Precision (are relevant chunks ranked higher?), and Context Recall (did retrieval find all needed references?). These metrics decompose the Accuracy Agent\u2019s single composite score into separate retrieval quality and generation quality measurements, enabling targeted improvements. For example, low Context Recall suggests the knowledge base needs more content, while low Faithfulness suggests the LLM prompt needs tighter grounding instructions. RAGAS is installed (ragas>=2.0 in requirements.txt) and the pipeline already produces the three required inputs: question, contexts, and answer.",
+  },
 ];
 
 function LegendItem({ color, label, description }: { color: string; label: string; description: string }) {
@@ -208,102 +214,79 @@ function RulesEngineArchitecture() {
         <span className="font-semibold text-gray-800"> validation_rules.json</span> file. This dual-source architecture ensures zero downtime &mdash; rules always load.
       </div>
 
-      {/* Graph model visualization */}
+      {/* Graph model — nodes */}
       <div className="rounded-lg border border-cyan-200 bg-white p-4 space-y-3">
-        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Neo4j Graph Model &mdash; Nodes &amp; Relationships</div>
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Neo4j Graph Model &mdash; Node Types</div>
         <div className="text-xs text-gray-500 mb-2">
-          Graph databases excel at modeling interconnected data. Each circle below is a &ldquo;node&rdquo; (an entity),
-          and each arrow is a &ldquo;relationship&rdquo; (a named, directed connection between nodes with optional properties).
+          In a graph database, data is stored as <strong>nodes</strong> (entities) connected by <strong>relationships</strong> (named, directed edges).
+          Unlike relational databases with rigid tables, graphs naturally model interconnected data like rules, agents, and their dependencies.
         </div>
-
-        <div className="flex items-center justify-center gap-3">
-          {/* Agent node */}
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-20 h-20 rounded-full bg-indigo-100 border-2 border-indigo-400 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-[10px] font-bold text-indigo-700">Agent</div>
-                <div className="text-[8px] text-indigo-500">e.g. compliance</div>
-              </div>
+        <div className="grid grid-cols-4 gap-3 text-xs">
+          <div className="rounded-lg border-2 border-indigo-300 bg-indigo-50 p-3">
+            <div className="font-bold text-indigo-700 mb-1">:Agent</div>
+            <div className="text-gray-600 space-y-0.5">
+              <div><span className="font-mono text-[10px] text-indigo-500">name</span> &mdash; e.g. &ldquo;compliance&rdquo;</div>
+              <div><span className="font-mono text-[10px] text-indigo-500">pass_threshold</span> &mdash; e.g. 0.75</div>
             </div>
-            <div className="text-[8px] text-gray-400 font-mono">name, pass_threshold</div>
+            <div className="text-[10px] text-gray-400 mt-1">5 nodes (one per agent)</div>
           </div>
-
-          {/* EVALUATED_BY arrow */}
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="text-[9px] font-semibold text-cyan-600">EVALUATED_BY</div>
-            <svg className="w-16 h-3" viewBox="0 0 64 12">
-              <line x1="0" y1="6" x2="56" y2="6" stroke="#06b6d4" strokeWidth="2" />
-              <polygon points="56,1 64,6 56,11" fill="#06b6d4" />
-            </svg>
-            <div className="text-[8px] text-gray-400">&ldquo;which agent checks this rule?&rdquo;</div>
-          </div>
-
-          {/* Rule node */}
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-20 h-20 rounded-full bg-cyan-100 border-2 border-cyan-400 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-[10px] font-bold text-cyan-700">Rule</div>
-                <div className="text-[8px] text-cyan-500">34 total</div>
-              </div>
+          <div className="rounded-lg border-2 border-cyan-300 bg-cyan-50 p-3">
+            <div className="font-bold text-cyan-700 mb-1">:Rule</div>
+            <div className="text-gray-600 space-y-0.5">
+              <div><span className="font-mono text-[10px] text-cyan-500">id</span> &mdash; e.g. &ldquo;no_absolute_cure_claims&rdquo;</div>
+              <div><span className="font-mono text-[10px] text-cyan-500">description</span> &mdash; the check text</div>
+              <div><span className="font-mono text-[10px] text-cyan-500">severity</span> &mdash; critical / major / minor / info</div>
+              <div><span className="font-mono text-[10px] text-cyan-500">threshold_json</span> &mdash; numeric limits</div>
             </div>
-            <div className="text-[8px] text-gray-400 font-mono text-center">id, description,<br/>severity, threshold</div>
+            <div className="text-[10px] text-gray-400 mt-1">34 nodes total</div>
           </div>
-
-          {/* BELONGS_TO arrow */}
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="text-[9px] font-semibold text-teal-600">BELONGS_TO</div>
-            <svg className="w-16 h-3" viewBox="0 0 64 12">
-              <line x1="0" y1="6" x2="56" y2="6" stroke="#0d9488" strokeWidth="2" />
-              <polygon points="56,1 64,6 56,11" fill="#0d9488" />
-            </svg>
-            <div className="text-[8px] text-gray-400">&ldquo;what category is this rule?&rdquo;</div>
-          </div>
-
-          {/* Category node */}
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-20 h-20 rounded-full bg-teal-100 border-2 border-teal-400 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-[10px] font-bold text-teal-700">Category</div>
-                <div className="text-[8px] text-teal-500">e.g. quality</div>
-              </div>
+          <div className="rounded-lg border-2 border-teal-300 bg-teal-50 p-3">
+            <div className="font-bold text-teal-700 mb-1">:Category</div>
+            <div className="text-gray-600 space-y-0.5">
+              <div><span className="font-mono text-[10px] text-teal-500">name</span> &mdash; e.g. &ldquo;prohibited_language&rdquo;</div>
             </div>
-            <div className="text-[8px] text-gray-400 font-mono">name</div>
+            <div className="text-[10px] text-gray-400 mt-1">Groups related rules together</div>
+          </div>
+          <div className="rounded-lg border-2 border-sky-300 bg-sky-50 p-3">
+            <div className="font-bold text-sky-700 mb-1">:ContentType</div>
+            <div className="text-gray-600 space-y-0.5">
+              <div><span className="font-mono text-[10px] text-sky-500">name</span> &mdash; &ldquo;standard&rdquo;, &ldquo;hil&rdquo;, or &ldquo;all&rdquo;</div>
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1">Filters which rules apply to which pages</div>
           </div>
         </div>
+      </div>
 
-        {/* Second row of relationships */}
-        <div className="flex items-center justify-center gap-6 mt-2">
-          <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-cyan-100 border border-cyan-300 flex items-center justify-center">
-              <div className="text-[7px] font-bold text-cyan-600">Rule</div>
-            </div>
-            <div className="flex flex-col items-center">
-              <div className="text-[9px] font-semibold text-orange-600">DEPENDS_ON</div>
-              <svg className="w-10 h-3" viewBox="0 0 40 12">
-                <line x1="0" y1="6" x2="32" y2="6" stroke="#ea580c" strokeWidth="2" strokeDasharray="4,2" />
-                <polygon points="32,1 40,6 32,11" fill="#ea580c" />
-              </svg>
-              <div className="text-[7px] text-gray-400">&ldquo;must this rule pass first?&rdquo;</div>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-cyan-100 border border-cyan-300 flex items-center justify-center">
-              <div className="text-[7px] font-bold text-cyan-600">Rule</div>
+      {/* Graph model — relationships */}
+      <div className="rounded-lg border border-cyan-200 bg-white p-4 space-y-3">
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Neo4j Relationships &mdash; How Nodes Connect</div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-3">
+            <div className="bg-cyan-600 text-white text-[9px] font-bold px-2 py-1 rounded whitespace-nowrap mt-0.5">EVALUATED_BY</div>
+            <div>
+              <div className="text-gray-700"><span className="font-mono text-cyan-600">(:Rule)</span> &rarr; <span className="font-mono text-indigo-600">(:Agent)</span></div>
+              <div className="text-gray-500 mt-0.5">&ldquo;Which agent is responsible for checking this rule?&rdquo; Links each of the 34 rules to the agent that enforces it.</div>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="w-8 h-8 rounded-full bg-cyan-100 border border-cyan-300 flex items-center justify-center">
-              <div className="text-[7px] font-bold text-cyan-600">Rule</div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-3">
+            <div className="bg-teal-600 text-white text-[9px] font-bold px-2 py-1 rounded whitespace-nowrap mt-0.5">BELONGS_TO</div>
+            <div>
+              <div className="text-gray-700"><span className="font-mono text-cyan-600">(:Rule)</span> &rarr; <span className="font-mono text-teal-600">(:Category)</span></div>
+              <div className="text-gray-500 mt-0.5">&ldquo;What category does this rule fall under?&rdquo; Groups rules like &ldquo;no_absolute_cure_claims&rdquo; under &ldquo;prohibited_language&rdquo;.</div>
             </div>
-            <div className="flex flex-col items-center">
-              <div className="text-[9px] font-semibold text-sky-600">APPLIES_TO</div>
-              <svg className="w-10 h-3" viewBox="0 0 40 12">
-                <line x1="0" y1="6" x2="32" y2="6" stroke="#0284c7" strokeWidth="2" />
-                <polygon points="32,1 40,6 32,11" fill="#0284c7" />
-              </svg>
-              <div className="text-[7px] text-gray-400">&ldquo;standard, HIL, or all?&rdquo;</div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-3">
+            <div className="bg-sky-600 text-white text-[9px] font-bold px-2 py-1 rounded whitespace-nowrap mt-0.5">APPLIES_TO</div>
+            <div>
+              <div className="text-gray-700"><span className="font-mono text-cyan-600">(:Rule)</span> &rarr; <span className="font-mono text-sky-600">(:ContentType)</span></div>
+              <div className="text-gray-500 mt-0.5">&ldquo;Does this rule apply to standard pages, HIL pages, or all?&rdquo; Enables content-type filtering at query time.</div>
             </div>
-            <div className="w-8 h-8 rounded-full bg-sky-100 border border-sky-300 flex items-center justify-center">
-              <div className="text-[7px] font-bold text-sky-600">Content<br/>Type</div>
+          </div>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex items-start gap-3">
+            <div className="bg-orange-500 text-white text-[9px] font-bold px-2 py-1 rounded whitespace-nowrap mt-0.5">DEPENDS_ON</div>
+            <div>
+              <div className="text-gray-700"><span className="font-mono text-cyan-600">(:Rule)</span> &rarr; <span className="font-mono text-cyan-600">(:Rule)</span></div>
+              <div className="text-gray-500 mt-0.5">&ldquo;Must this other rule pass first?&rdquo; E.g. &ldquo;meta_desc_length&rdquo; depends on &ldquo;meta_desc_present&rdquo; &mdash; no point checking length if the tag is missing.</div>
             </div>
           </div>
         </div>
@@ -718,6 +701,182 @@ function TestingEvals() {
   );
 }
 
+/* ── RAGAS Evaluation Framework section ────────────────────────────── */
+
+function RagasEvaluation() {
+  return (
+    <div className="border border-rose-200 rounded-xl bg-gradient-to-b from-rose-50/50 to-white p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-3 h-3 rounded bg-rose-500" />
+        <h4 className="text-sm font-semibold text-gray-900">RAGAS &mdash; RAG Assessment Framework for Accuracy Agent</h4>
+      </div>
+
+      <div className="text-xs text-gray-600 leading-relaxed">
+        <a href="https://docs.ragas.io" target="_blank" rel="noopener noreferrer" className="font-semibold text-rose-700 hover:underline">RAGAS</a> (Retrieval-Augmented Generation Assessment) is an open-source framework
+        for evaluating RAG pipelines using standardized, research-backed metrics. It measures how well the retrieval step finds relevant evidence
+        and how faithfully the LLM uses that evidence &mdash; catching problems like hallucinations, incomplete retrieval, and irrelevant context
+        that custom scoring alone can miss.
+      </div>
+
+      {/* How it connects to the Accuracy Agent */}
+      <div className="rounded-lg border border-rose-100 bg-white p-4 space-y-3 text-xs">
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">How RAGAS Evaluates the Accuracy Agent&rsquo;s RAG Pipeline</div>
+        <div className="text-gray-600 leading-relaxed">
+          The Accuracy Agent uses a 3-step RAG pipeline: (1) construct a query from page content, (2) retrieve 5 reference chunks via PGVector MMR search,
+          (3) GPT-5.1 fact-checks claims against those references. RAGAS evaluates each of these steps independently using four core metrics,
+          giving granular visibility into <em>where</em> the pipeline succeeds or fails &mdash; retrieval quality vs. generation quality.
+        </div>
+      </div>
+
+      {/* Four RAGAS metrics */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">GENERATION</span>
+            <span className="font-semibold text-gray-800 text-[11px]">Faithfulness</span>
+          </div>
+          <div className="text-gray-600 leading-relaxed">
+            Measures what fraction of the LLM&rsquo;s claims are actually supported by the retrieved references.
+            A faithfulness score of 0.85 means 85% of generated statements can be traced back to a reference chunk.
+            <span className="block mt-1 text-rose-600 font-medium">Catches: hallucinations, unsupported claims, fabricated statistics</span>
+          </div>
+          <div className="text-[10px] text-gray-400 font-mono">score: 0.0&ndash;1.0 &middot; higher = more grounded in evidence</div>
+        </div>
+
+        <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">GENERATION</span>
+            <span className="font-semibold text-gray-800 text-[11px]">Answer Relevancy</span>
+          </div>
+          <div className="text-gray-600 leading-relaxed">
+            Measures how relevant the LLM&rsquo;s output is to the original question/task. Generates multiple hypothetical questions
+            from the answer, then computes cosine similarity between those questions and the original query.
+            <span className="block mt-1 text-rose-600 font-medium">Catches: off-topic responses, tangential information, unfocused analysis</span>
+          </div>
+          <div className="text-[10px] text-gray-400 font-mono">score: 0.0&ndash;1.0 &middot; higher = more on-topic</div>
+        </div>
+
+        <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">RETRIEVAL</span>
+            <span className="font-semibold text-gray-800 text-[11px]">Context Precision</span>
+          </div>
+          <div className="text-gray-600 leading-relaxed">
+            Measures whether the relevant reference chunks are ranked higher than irrelevant ones in the retrieval results.
+            High precision means PGVector&rsquo;s MMR search is putting the most useful references at the top of the k=5 results.
+            <span className="block mt-1 text-purple-600 font-medium">Catches: diluted context, noisy retrieval, poor ranking</span>
+          </div>
+          <div className="text-[10px] text-gray-400 font-mono">score: 0.0&ndash;1.0 &middot; higher = better ranked results</div>
+        </div>
+
+        <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="bg-purple-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">RETRIEVAL</span>
+            <span className="font-semibold text-gray-800 text-[11px]">Context Recall</span>
+          </div>
+          <div className="text-gray-600 leading-relaxed">
+            Measures what fraction of the ground-truth answer is attributable to the retrieved context. High recall means
+            the retrieval found all the reference material needed for a complete fact-check, not just some of it.
+            <span className="block mt-1 text-purple-600 font-medium">Catches: missing references, incomplete knowledge base, retrieval gaps</span>
+          </div>
+          <div className="text-[10px] text-gray-400 font-mono">score: 0.0&ndash;1.0 &middot; higher = more complete retrieval</div>
+        </div>
+      </div>
+
+      {/* Pipeline mapping */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4 text-xs space-y-2">
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Mapping RAGAS Metrics to Accuracy Agent Pipeline Steps</div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <div className="font-medium text-gray-700">Step 1: Query Construction</div>
+            <div className="text-gray-500">
+              <span className="font-mono text-[10px] bg-gray-100 px-1 rounded">title + body[:1000]</span>
+            </div>
+            <div className="text-gray-400 text-[10px]">Affects both retrieval metrics &mdash; a poor query leads to irrelevant context</div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="font-medium text-gray-700">Step 2: PGVector MMR Retrieval</div>
+            <div className="text-gray-500">
+              <span className="font-mono text-[10px] bg-purple-100 text-purple-700 px-1 rounded">Context Precision</span>
+              {" + "}
+              <span className="font-mono text-[10px] bg-purple-100 text-purple-700 px-1 rounded">Context Recall</span>
+            </div>
+            <div className="text-gray-400 text-[10px]">Are the right references found? Are they ranked well?</div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="font-medium text-gray-700">Step 3: GPT-5.1 Fact-Check</div>
+            <div className="text-gray-500">
+              <span className="font-mono text-[10px] bg-rose-100 text-rose-700 px-1 rounded">Faithfulness</span>
+              {" + "}
+              <span className="font-mono text-[10px] bg-rose-100 text-rose-700 px-1 rounded">Answer Relevancy</span>
+            </div>
+            <div className="text-gray-400 text-[10px]">Does the LLM stick to the evidence? Is the output focused?</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Current vs RAGAS comparison */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-1.5">
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Current Evaluation (Custom)</div>
+          <div className="space-y-1 text-gray-600">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span>GPT-5.1 scores claims against references (0.0&ndash;1.0)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span>Binary pass/fail per claim (passed_checks vs issues)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span>Actionable recommendations for each issue</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-yellow-500" />
+              <span>Single composite score &mdash; no retrieval vs. generation breakdown</span>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-1.5">
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">RAGAS Enhancement (Planned)</div>
+          <div className="space-y-1 text-gray-600">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>4 independent metrics separate retrieval from generation quality</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>Standardized benchmarks enable comparison across runs</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>Catches hallucinations even when custom score is high</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>Pinpoints whether to improve retrieval (k, &lambda;) or prompts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Technical integration note */}
+      <div className="flex gap-2 rounded-lg bg-rose-50 border border-rose-100 px-3 py-2">
+        <svg className="w-3.5 h-3.5 text-rose-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+        </svg>
+        <p className="text-xs text-rose-700">
+          <strong>Status:</strong> RAGAS is installed (<span className="font-mono">ragas&gt;=2.0</span> in requirements.txt) and ready for integration.
+          The Accuracy Agent&rsquo;s RAG pipeline already produces the three inputs RAGAS needs: the question (constructed query),
+          the contexts (retrieved PGVector chunks), and the answer (GPT-5.1 fact-check output). Integration requires adding a post-processing
+          step that feeds these into RAGAS&rsquo;s <span className="font-mono">evaluate()</span> function after each accuracy agent run.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main export ─────────────────────────────────────────────────────── */
 
 export function PipelineDiagram() {
@@ -870,6 +1029,10 @@ export function PipelineDiagram() {
       {/* Section: State Management */}
       <SectionTitle color="amber">State Management &amp; Checkpointing</SectionTitle>
       <StateManagement />
+
+      {/* Section: RAGAS Evaluation */}
+      <SectionTitle color="rose">RAGAS &mdash; RAG Quality Evaluation Framework</SectionTitle>
+      <RagasEvaluation />
 
       {/* Section: Testing */}
       <SectionTitle color="cyan">Testing &amp; Evaluation Suite</SectionTitle>

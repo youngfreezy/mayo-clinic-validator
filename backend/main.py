@@ -205,6 +205,8 @@ async def _run_pipeline(vid: str, initial_state: Dict, q: asyncio.Queue) -> None
                         "agents_skipped": routing.get("agents_skipped", []),
                         "content_type": routing.get("content_type", "unknown"),
                         "routing_method": routing.get("routing_method", "unknown"),
+                        "rules_version": chunk.get("rules_version"),
+                        "rules_source": chunk.get("rules_source"),
                     },
                 })
 

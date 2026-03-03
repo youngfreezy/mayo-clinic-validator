@@ -14,6 +14,7 @@ class AgentFinding(BaseModel):
     passed_checks: List[str] = []
     issues: List[str] = []
     recommendations: List[str] = []
+    ragas_scores: Optional[Dict[str, float]] = None
 
 
 class RoutingDecision(BaseModel):

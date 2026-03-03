@@ -5,6 +5,12 @@ export interface AgentFinding {
   passed_checks: string[];
   issues: string[];
   recommendations: string[];
+  ragas_scores?: {
+    faithfulness?: number;
+    answer_relevancy?: number;
+    context_precision?: number;
+    context_recall?: number;
+  };
 }
 
 export interface ValidationSummary {
@@ -26,6 +32,8 @@ export interface RoutingInfo {
   agents_skipped: string[];
   content_type: string;
   routing_method: string;
+  rules_version?: string;
+  rules_source?: string;
 }
 
 export interface JudgeRecommendation {
@@ -135,9 +143,9 @@ const AGENT_METHODOLOGY: Record<string, AgentMethodology> = {
   },
   accuracy: {
     agentType: "Accuracy Agent",
-    model: "RAG fact-checking",
+    model: "RAG fact-checking + RAGAS eval",
     methodology:
-      "Compares extracted page claims with trusted Mayo knowledge chunks and scores factual alignment and contradictions.",
+      "Compares extracted page claims with trusted Mayo knowledge chunks and scores factual alignment and contradictions. RAGAS metrics (faithfulness, answer relevancy, context precision) evaluate RAG pipeline quality.",
   },
   empty_tag: {
     agentType: "Empty Tag Agent",
