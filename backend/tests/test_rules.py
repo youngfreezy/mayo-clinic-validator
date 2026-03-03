@@ -220,11 +220,11 @@ class TestRuleLoader:
         assert version == "1.0.0"
 
     @pytest.mark.asyncio
-    async def test_get_rules_for_agent_fallback(self):
-        """With no Neo4j configured, should fall back to JSON."""
+    async def test_get_rules_for_agent_loads_rules(self):
+        """Should load rules from Neo4j (if configured) or JSON fallback."""
         from rules.loader import get_rules_for_agent
         rule_set = await get_rules_for_agent("editorial", "standard")
-        assert rule_set.source == "json"
+        assert rule_set.source in ("json", "neo4j")
         assert len(rule_set.rules) > 0
 
 

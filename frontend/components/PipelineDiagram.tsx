@@ -839,7 +839,7 @@ function RagasEvaluation() {
           </div>
         </div>
         <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-1.5">
-          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">RAGAS Enhancement (Planned)</div>
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">RAGAS Enhancement (Integrated)</div>
           <div className="space-y-1 text-gray-600">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-rose-500" />
@@ -867,10 +867,10 @@ function RagasEvaluation() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
         </svg>
         <p className="text-xs text-rose-700">
-          <strong>Status:</strong> RAGAS is installed (<span className="font-mono">ragas&gt;=2.0</span> in requirements.txt) and ready for integration.
-          The Accuracy Agent&rsquo;s RAG pipeline already produces the three inputs RAGAS needs: the question (constructed query),
-          the contexts (retrieved PGVector chunks), and the answer (GPT-5.1 fact-check output). Integration requires adding a post-processing
-          step that feeds these into RAGAS&rsquo;s <span className="font-mono">evaluate()</span> function after each accuracy agent run.
+          <strong>Status: Integrated.</strong> RAGAS runs as a post-processing step after each Accuracy Agent evaluation.
+          The agent captures its three pipeline outputs &mdash; the question (constructed query), the contexts (5 retrieved PGVector chunks),
+          and the answer (GPT-5.1 fact-check JSON) &mdash; and feeds them into RAGAS&rsquo;s <span className="font-mono">evaluate()</span> function.
+          Scores are stored in the <span className="font-mono">ragas_scores</span> field of AgentFinding and displayed on the Accuracy Agent&rsquo;s result card.
         </p>
       </div>
     </div>
