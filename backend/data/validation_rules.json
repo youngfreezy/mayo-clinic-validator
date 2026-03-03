@@ -1,0 +1,279 @@
+{
+  "version": "1.0.0",
+  "agents": {
+    "metadata": {
+      "pass_threshold": 0.7,
+      "applies_to": ["standard", "hil"],
+      "scoring": {
+        "perfect": "1.0: All metadata complete and optimal",
+        "minor": "0.8-0.9: Minor issues (slightly short/long description, missing one OG tag)",
+        "moderate": "0.5-0.7: Moderate issues (no JSON-LD, missing canonical, poor description)",
+        "major": "Below 0.5: Major issues (no meta description, no structured data, broken canonical)"
+      },
+      "context": "The metadata provided was extracted from the initial server-side rendered (SSR) HTML response — i.e. the raw HTML returned before any client-side JavaScript runs. Mayo Clinic pages are Next.js applications; some meta tags (especially og:description and meta description) may be populated only after client-side hydration and will therefore appear missing or empty in the SSR snapshot. When reporting issues with missing or empty tags, note explicitly that the tag was absent in the SSR HTML and may be injected client-side, which means search engine crawlers that rely on the raw HTML response may also not see them.",
+      "rules": [
+        {
+          "id": "meta_desc_present",
+          "description": "Meta description tag must be present in the SSR HTML",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "meta_desc_length",
+          "description": "Meta description must be within 150-160 characters for optimal search engine display",
+          "severity": "major",
+          "category": "quality",
+          "threshold": {"min": 150, "max": 160, "unit": "characters"},
+          "depends_on": ["meta_desc_present"]
+        },
+        {
+          "id": "canonical_url_present",
+          "description": "Canonical URL must be present to prevent duplicate content issues",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "canonical_url_match",
+          "description": "Canonical URL must match the submitted page URL",
+          "severity": "major",
+          "category": "quality",
+          "depends_on": ["canonical_url_present"]
+        },
+        {
+          "id": "json_ld_present",
+          "description": "JSON-LD structured data must be present in the page",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "json_ld_schema_type",
+          "description": "JSON-LD must contain at least one MedicalWebPage or WebPage schema type",
+          "severity": "major",
+          "category": "quality",
+          "depends_on": ["json_ld_present"]
+        },
+        {
+          "id": "og_title_present",
+          "description": "Open Graph og:title tag must be present",
+          "severity": "major",
+          "category": "required_elements"
+        },
+        {
+          "id": "og_description_present",
+          "description": "Open Graph og:description tag must be present",
+          "severity": "major",
+          "category": "required_elements"
+        },
+        {
+          "id": "og_type_valid",
+          "description": "Open Graph og:type must be set to 'website' or 'article'",
+          "severity": "minor",
+          "category": "quality"
+        }
+      ]
+    },
+    "editorial": {
+      "pass_threshold": 0.7,
+      "applies_to": ["standard", "hil"],
+      "scoring": {
+        "perfect": "1.0: Excellent structure, up-to-date, proper attribution, complete sections",
+        "minor": "0.8-0.9: Minor issues (one missing section, slightly outdated review date)",
+        "moderate": "0.5-0.7: Moderate issues (poor heading structure, no review date, missing attribution)",
+        "major": "Below 0.5: Major issues (no discernible structure, severely outdated, missing critical sections)"
+      },
+      "rules": [
+        {
+          "id": "h1_present",
+          "description": "H1 heading must be present and descriptive of the page topic",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "h2_sections",
+          "description": "H2 headings must be used for major content sections (Symptoms, Causes, Treatment, etc.)",
+          "severity": "major",
+          "category": "structure"
+        },
+        {
+          "id": "heading_hierarchy",
+          "description": "No heading level skips allowed (e.g., H4 must not appear without a preceding H3)",
+          "severity": "major",
+          "category": "structure",
+          "depends_on": ["h1_present"]
+        },
+        {
+          "id": "last_reviewed_present",
+          "description": "A 'last reviewed' date must be present on the page",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "last_reviewed_recency",
+          "description": "Last reviewed date must be within 2 years (no earlier than 2024 for current year 2026)",
+          "severity": "major",
+          "category": "timeliness",
+          "threshold": {"max_age_years": 2},
+          "depends_on": ["last_reviewed_present"]
+        },
+        {
+          "id": "attribution_present",
+          "description": "Author attribution must be present — 'By Mayo Clinic Staff' or a named reviewer",
+          "severity": "critical",
+          "category": "required_elements"
+        },
+        {
+          "id": "required_sections",
+          "description": "At least 3 required sections must be present from: Overview, Symptoms, Causes, Diagnosis, Treatment, Prevention",
+          "severity": "major",
+          "category": "structure",
+          "threshold": {"min_sections": 3}
+        },
+        {
+          "id": "content_depth",
+          "description": "Body text should contain at least 500 words for adequate content depth",
+          "severity": "minor",
+          "category": "quality",
+          "threshold": {"min_words": 500}
+        },
+        {
+          "id": "taxonomy_alignment",
+          "description": "URL path and headings should suggest correct medical category (e.g., diseases-conditions, symptoms)",
+          "severity": "minor",
+          "category": "quality"
+        }
+      ]
+    },
+    "compliance": {
+      "pass_threshold": 0.75,
+      "applies_to": ["standard", "hil"],
+      "scoring": {
+        "perfect": "1.0: Fully compliant, proper hedging, no prohibited language",
+        "minor": "0.8-0.9: Minor issues (one unsubstantiated claim, missing one disclaimer)",
+        "moderate": "0.5-0.7: Moderate issues (multiple policy violations, missing critical disclaimers)",
+        "major": "Below 0.5: Major violations (absolute cure claims, HIPAA concerns, significant legal risk)"
+      },
+      "rules": [
+        {
+          "id": "no_absolute_cure_claims",
+          "description": "Content must NOT contain absolute cure claims: 'cures', 'eliminates', 'eradicates', 'guarantees recovery/remission'",
+          "severity": "critical",
+          "category": "prohibited_language"
+        },
+        {
+          "id": "no_unsubstantiated_superlatives",
+          "description": "Content must NOT contain unsubstantiated superlatives: 'the only treatment', 'best medicine', 'revolutionary'",
+          "severity": "major",
+          "category": "prohibited_language"
+        },
+        {
+          "id": "no_offlabel_promotion",
+          "description": "Content must NOT promote off-label drug use without appropriate FDA caveats",
+          "severity": "critical",
+          "category": "regulatory"
+        },
+        {
+          "id": "no_hipaa_exposure",
+          "description": "Content must NOT expose personal health information or patient-identifiable data",
+          "severity": "critical",
+          "category": "regulatory"
+        },
+        {
+          "id": "disclaimer_present",
+          "description": "Required medical disclaimer language must be present (e.g., 'consult your healthcare provider')",
+          "severity": "major",
+          "category": "required_elements"
+        },
+        {
+          "id": "hedging_language",
+          "description": "Medical content should use appropriate hedging: 'may help', 'can reduce', 'consult a doctor' rather than absolute statements",
+          "severity": "major",
+          "category": "language_quality"
+        },
+        {
+          "id": "fda_language_compliance",
+          "description": "Drug and treatment references must comply with FDA language guidelines — no unapproved claims",
+          "severity": "critical",
+          "category": "regulatory"
+        }
+      ]
+    },
+    "accuracy": {
+      "pass_threshold": 0.75,
+      "applies_to": ["standard", "hil"],
+      "scoring": {
+        "perfect": "1.0: All verifiable claims align with reference material",
+        "minor": "0.8-0.9: Minor discrepancies (outdated statistics, imprecise terminology)",
+        "moderate": "0.5-0.7: Moderate inaccuracies (wrong dosage ranges, incorrect symptom attribution)",
+        "major": "Below 0.5: Significant factual errors or contradictions with reference material"
+      },
+      "rules": [
+        {
+          "id": "claims_match_references",
+          "description": "All verifiable medical claims must align with retrieved reference material from the knowledge base",
+          "severity": "critical",
+          "category": "factual_accuracy"
+        },
+        {
+          "id": "no_wrong_dosages",
+          "description": "Drug dosage ranges and medication information must be accurate per reference material",
+          "severity": "critical",
+          "category": "factual_accuracy"
+        },
+        {
+          "id": "correct_symptom_attribution",
+          "description": "Symptoms must be attributed to the correct conditions — no cross-condition symptom confusion",
+          "severity": "critical",
+          "category": "factual_accuracy"
+        },
+        {
+          "id": "statistics_current",
+          "description": "Statistics and numerical data should be current and match reference material",
+          "severity": "major",
+          "category": "timeliness"
+        },
+        {
+          "id": "terminology_precise",
+          "description": "Medical terminology must be used precisely and consistently with reference material",
+          "severity": "minor",
+          "category": "language_quality"
+        },
+        {
+          "id": "no_reference_fallback",
+          "description": "If no relevant references are found in the knowledge base, score 0.7 and note the limitation",
+          "severity": "minor",
+          "category": "system"
+        }
+      ]
+    },
+    "empty_tag": {
+      "pass_threshold": 0.8,
+      "applies_to": ["hil"],
+      "scoring": {
+        "perfect": "1.0: No self-closing or empty content tags found",
+        "penalty": "Deduct 0.05 per issue found (linear penalty)"
+      },
+      "rules": [
+        {
+          "id": "no_self_closing_tags",
+          "description": "Content tags must NOT be self-closing (e.g., <title/>, <h1 />) — they should contain content",
+          "severity": "major",
+          "category": "html_structure",
+          "threshold": {"deduction_per_issue": 0.05}
+        },
+        {
+          "id": "no_empty_tags",
+          "description": "Content tags must NOT be empty or whitespace-only (e.g., <title></title>, <h1>  </h1>)",
+          "severity": "major",
+          "category": "html_structure",
+          "threshold": {"deduction_per_issue": 0.05}
+        },
+        {
+          "id": "content_tags_checked",
+          "description": "The following tags are checked: title, h1, h2, h3, h4, p, a, li, td, th, label, button",
+          "severity": "info",
+          "category": "html_structure"
+        }
+      ]
+    }
+  }
+}

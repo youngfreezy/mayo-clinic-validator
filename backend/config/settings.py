@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "mayo-clinic-validator"
 
+    # Neo4j Aura (graph DB for validation rules)
+    # Leave empty to use JSON fallback instead.
+    NEO4J_URI: str = ""
+    NEO4J_USER: str = ""
+    NEO4J_PASSWORD: str = ""
+
     # Allow all origins by default so HF Spaces works without extra config.
     # Override via CORS_ORIGINS env var for stricter deployments.
     CORS_ORIGINS: List[str] = ["*"]

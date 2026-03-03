@@ -6,15 +6,15 @@ since parsers silently fix malformed tags like <title/> into <title></title>.
 
 Only dispatched for HIL (Health Information Library) pages via the triage node.
 
-Checks for:
-- Self-closing tags: <title/>, <h1/>, <h2/>, <p/>, etc.
-- Empty tags: <title></title>, <h1></h1>, <h1>  </h1>, etc.
+Rules (content_tags, thresholds) are loaded from Neo4j or validation_rules.json,
+but the scanning logic itself is deterministic Python (no LLM).
 """
 
 import re
 from typing import List, Tuple
 
 from pipeline.state import ValidationState, AgentFinding
+from rules.loader import get_rules_for_agent
 
 # Tags that should always have content — self-closing or empty versions are issues
 CONTENT_TAGS = ["title", "h1", "h2", "h3", "h4", "p", "a", "li", "td", "th", "label", "button"]
@@ -30,10 +30,6 @@ EMPTY_TAG_RE = re.compile(
     r"<(" + "|".join(CONTENT_TAGS) + r")(\s[^>]*)?>\s*</\1>",
     re.IGNORECASE,
 )
-
-# Score deduction per issue found
-DEDUCTION_PER_ISSUE = 0.05
-PASS_THRESHOLD = 0.8
 
 
 def _scan_html(raw_html: str) -> List[Tuple[str, int, str]]:
@@ -88,6 +84,17 @@ async def run_empty_tag_agent(state: ValidationState) -> dict:
             "agent_statuses": {"empty_tag": "done"},
         }
 
+    # Load rules to get thresholds
+    rule_set = await get_rules_for_agent("empty_tag", "hil")
+    deduction_per_issue = 0.05
+    pass_threshold = rule_set.pass_threshold
+
+    # Extract deduction from rules if available
+    for rule in rule_set.rules:
+        if rule.threshold and rule.threshold.deduction_per_issue:
+            deduction_per_issue = rule.threshold.deduction_per_issue
+            break
+
     tag_issues = _scan_html(raw_html)
 
     if not tag_issues:
@@ -109,12 +116,12 @@ async def run_empty_tag_agent(state: ValidationState) -> dict:
                     f"Empty <{tag}></{tag}> at line {line_num} — tag exists but has no content"
                 )
 
-        score = max(0.0, 1.0 - len(tag_issues) * DEDUCTION_PER_ISSUE)
+        score = max(0.0, 1.0 - len(tag_issues) * deduction_per_issue)
         score = round(score, 2)
 
         finding = AgentFinding(
             agent="empty_tag",
-            passed=score >= PASS_THRESHOLD,
+            passed=score >= pass_threshold,
             score=score,
             passed_checks=[],
             issues=issue_descriptions,

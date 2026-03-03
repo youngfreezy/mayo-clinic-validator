@@ -1,13 +1,7 @@
 """
 Compliance Agent — validates regulatory, legal, and editorial policy language.
 
-Checks:
-- No prohibited absolute claims ("cures", "eliminates", "guarantees recovery")
-- Required medical disclaimer language present
-- No FDA-regulated off-label promotion without appropriate caveats
-- No HIPAA-sensitive personal health information exposure
-- No unsubstantiated superlatives ("best", "only", "revolutionary")
-- Appropriate hedging language for medical advice ("consult your doctor", "may", "can")
+Rules are loaded dynamically from Neo4j (primary) or validation_rules.json (fallback).
 """
 
 import json
@@ -16,25 +10,13 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
 from agents.llm_factory import create_agent_llm
+from rules.loader import get_rules_for_agent
 
 SYSTEM_PROMPT = """You are a medical content compliance specialist for Mayo Clinic.
 Review health content for regulatory compliance, legal language, and editorial policy violations.
 Respond ONLY with valid JSON.
 
-Prohibited language includes:
-- Absolute cure claims: "cures", "eliminates", "eradicates", "guarantees recovery/remission"
-- Unsubstantiated superlatives: "the only treatment", "best medicine", "revolutionary"
-- Off-label drug promotion without caveats
-- Personal health information exposure
-- Missing required hedging: medical content should say "may help", "can reduce", "consult a doctor"
-
-Score criteria (0.0 to 1.0):
-- 1.0: Fully compliant, proper hedging, no prohibited language
-- 0.8–0.9: Minor issues (one unsubstantiated claim, missing one disclaimer)
-- 0.5–0.7: Moderate issues (multiple policy violations, missing critical disclaimers)
-- Below 0.5: Major violations (absolute cure claims, HIPAA concerns, significant legal risk)
-
-A page "passes" if score >= 0.75."""
+{rules_block}"""
 
 USER_PROMPT = """Review this Mayo Clinic content for compliance violations.
 
@@ -42,13 +24,7 @@ Title: {title}
 URL: {url}
 Content: {body_text}
 
-Evaluate:
-1. Prohibited absolute claim language
-2. Required disclaimers (e.g., "consult your healthcare provider")
-3. FDA language compliance
-4. HIPAA concerns (patient-identifiable information)
-5. Appropriate medical hedging throughout
-6. Unsubstantiated superlatives
+Evaluate the content against every rule listed in the system prompt.
 
 Respond with this exact JSON structure:
 {{
@@ -85,6 +61,12 @@ async def run_compliance_agent(state: ValidationState) -> dict:
         )
         return {"findings": [finding], "agent_statuses": {"compliance": "done"}}
 
+    # Load rules dynamically
+    routing = state.get("routing_decision") or {}
+    content_type = routing.get("content_type", "standard")
+    rule_set = await get_rules_for_agent("compliance", content_type)
+    rules_block = rule_set.to_prompt_block()
+
     llm = create_agent_llm("compliance", validation_id=state.get("validation_id", ""))
 
     prompt = ChatPromptTemplate.from_messages([
@@ -96,6 +78,7 @@ async def run_compliance_agent(state: ValidationState) -> dict:
 
     try:
         response = await chain.ainvoke({
+            "rules_block": rules_block,
             "title": content.get("title", ""),
             "url": state["url"],
             "body_text": content.get("body_text", "")[:5000],

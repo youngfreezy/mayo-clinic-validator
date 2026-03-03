@@ -4,8 +4,7 @@ Accuracy Agent — fact-checks medical claims against the RAG knowledge base.
 Uses PGVector (MMR retrieval) to fetch relevant Mayo Clinic medical facts,
 then asks GPT-5.1 to compare the content claims against retrieved references.
 
-This is a single LLM call with retrieved context (rather than full ReAct loop)
-to keep it deterministic and avoid infinite tool loops inside a Send branch.
+Rules are loaded dynamically from Neo4j (primary) or validation_rules.json (fallback).
 """
 
 import asyncio
@@ -16,20 +15,14 @@ from langchain_core.prompts import ChatPromptTemplate
 from pipeline.state import ValidationState, AgentFinding
 from tools.rag_retriever import get_retriever
 from agents.llm_factory import create_agent_llm
+from rules.loader import get_rules_for_agent
 
 SYSTEM_PROMPT = """You are a medical accuracy reviewer for Mayo Clinic.
 You have been provided with verified medical reference documents from Mayo Clinic's knowledge base.
 Compare the submitted content's medical claims against these references and identify inaccuracies.
 Respond ONLY with valid JSON.
 
-Score criteria (0.0 to 1.0):
-- 1.0: All verifiable claims align with reference material
-- 0.8–0.9: Minor discrepancies (outdated statistics, imprecise terminology)
-- 0.5–0.7: Moderate inaccuracies (wrong dosage ranges, incorrect symptom attribution)
-- Below 0.5: Significant factual errors or contradictions with reference material
-
-A page "passes" if score >= 0.75.
-If no relevant references are found, score 0.7 and note the limitation."""
+{rules_block}"""
 
 USER_PROMPT = """Fact-check this Mayo Clinic content against the provided medical references.
 
@@ -79,6 +72,12 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
         )
         return {"findings": [finding], "agent_statuses": {"accuracy": "done"}}
 
+    # Load rules dynamically
+    routing = state.get("routing_decision") or {}
+    content_type = routing.get("content_type", "standard")
+    rule_set = await get_rules_for_agent("accuracy", content_type)
+    rules_block = rule_set.to_prompt_block()
+
     # Build a query from title + first portion of body
     title = content.get("title", "")
     body = content.get("body_text", "")
@@ -88,8 +87,6 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
     references_text = "No references available in knowledge base."
     try:
         retriever = get_retriever(k=5)
-        # PGVector was initialized with a sync connection string, so run
-        # the sync retriever in a thread pool to avoid blocking the event loop.
         docs = await asyncio.to_thread(retriever.invoke, query)
         if docs:
             references_text = "\n\n---\n\n".join(
@@ -109,6 +106,7 @@ async def run_accuracy_agent(state: ValidationState) -> dict:
 
     try:
         response = await chain.ainvoke({
+            "rules_block": rules_block,
             "title": title,
             "url": state["url"],
             "body_text": body[:4000],

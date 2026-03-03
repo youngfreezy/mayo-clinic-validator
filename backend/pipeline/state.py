@@ -79,5 +79,9 @@ class ValidationState(TypedDict):
     # LLM-as-a-Judge recommendation (set by judge node after aggregate)
     judge_recommendation: Optional[Dict[str, Any]]
 
+    # Rules version applied to this validation run (set by triage_node)
+    rules_version: Optional[str]
+    rules_source: Optional[str]
+
     # Error accumulation — operator.add so parallel agents can each append errors
     errors: Annotated[List[str], operator.add]

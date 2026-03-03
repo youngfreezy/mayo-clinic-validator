@@ -27,5 +27,12 @@ pydantic>=2.8.0
 pydantic-settings>=2.4.0
 python-dotenv>=1.0.0
 
+# Graph DB (Neo4j Aura for validation rules engine)
+neo4j>=5.20.0
+
+# Evals
+ragas>=0.2.0
+datasets>=2.18.0
+
 # Typing
 typing-extensions>=4.12.0

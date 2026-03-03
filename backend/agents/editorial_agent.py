@@ -2,14 +2,7 @@
 Editorial Agent — validates heading hierarchy, last reviewed date, attribution,
 content structure, and taxonomy alignment.
 
-Checks:
-- H1 present and descriptive
-- H2s used for major sections (Symptoms, Causes, Treatment, etc.)
-- No heading level skips (e.g., H4 without H3 parent)
-- Last reviewed date present and within 2 years
-- "By Mayo Clinic Staff" or reviewer attribution present in body
-- Required sections present: Overview, Symptoms, Causes (inferred from headings)
-- Adequate content length (>500 words estimated)
+Rules are loaded dynamically from Neo4j (primary) or validation_rules.json (fallback).
 """
 
 import json
@@ -18,17 +11,12 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from pipeline.state import ValidationState, AgentFinding
 from agents.llm_factory import create_agent_llm
+from rules.loader import get_rules_for_agent
 
 SYSTEM_PROMPT = """You are a senior editorial standards reviewer for Mayo Clinic's digital health content.
 Evaluate editorial quality and structure of a Mayo Clinic web page. Respond ONLY with valid JSON.
 
-Score criteria (0.0 to 1.0):
-- 1.0: Excellent structure, up-to-date, proper attribution, complete sections
-- 0.8–0.9: Minor issues (one missing section, slightly outdated review date)
-- 0.5–0.7: Moderate issues (poor heading structure, no review date, missing attribution)
-- Below 0.5: Major issues (no discernible structure, severely outdated, missing critical sections)
-
-A page "passes" if score >= 0.7."""
+{rules_block}"""
 
 USER_PROMPT = """Review the editorial quality of this Mayo Clinic page.
 
@@ -40,13 +28,7 @@ Body Text (first 2000 chars): {body_preview}
 Internal Link Count: {internal_link_count}
 External Link Count: {external_link_count}
 
-Check for:
-1. Heading hierarchy correctness (no skipped levels, logical progression)
-2. Last reviewed date (should exist and be within 2 years of 2026)
-3. Attribution ("Mayo Clinic Staff" or named reviewer)
-4. Required sections (symptoms, causes, diagnosis, treatment, prevention — at least 3)
-5. Adequate content depth (estimated from body text length)
-6. Proper taxonomy (URL and headings suggest correct medical category)
+Evaluate the content against every rule listed in the system prompt.
 
 Respond with this exact JSON structure:
 {{
@@ -83,6 +65,12 @@ async def run_editorial_agent(state: ValidationState) -> dict:
         )
         return {"findings": [finding], "agent_statuses": {"editorial": "done"}}
 
+    # Load rules dynamically
+    routing = state.get("routing_decision") or {}
+    content_type = routing.get("content_type", "standard")
+    rule_set = await get_rules_for_agent("editorial", content_type)
+    rules_block = rule_set.to_prompt_block()
+
     headings = content.get("headings", [])
     headings_formatted = "\n".join(
         f"  {'#' * h['level']} {h['text']}" for h in headings
@@ -99,6 +87,7 @@ async def run_editorial_agent(state: ValidationState) -> dict:
 
     try:
         response = await chain.ainvoke({
+            "rules_block": rules_block,
             "url": state["url"],
             "title": content.get("title", ""),
             "last_reviewed": content.get("last_reviewed") or "Not found",
