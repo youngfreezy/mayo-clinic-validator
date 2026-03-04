@@ -11,13 +11,15 @@ interface HFUser {
 export function HFLoginButton() {
   const [user, setUser] = useState<HFUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isHFSpaces, setIsHFSpaces] = useState(false);
 
   useEffect(() => {
+    const isLocal =
+      typeof window !== "undefined" && window.location.port === "3000";
+    setIsHFSpaces(!isLocal);
+
     const base =
-      process.env.NEXT_PUBLIC_API_URL ||
-      (typeof window !== "undefined" && window.location.port === "3000"
-        ? "http://localhost:8000"
-        : "");
+      process.env.NEXT_PUBLIC_API_URL || (isLocal ? "http://localhost:8000" : "");
     fetch(`${base}/api/auth/me`, { credentials: "include" })
       .then((r) => r.json())
       .then((d) => { setUser(d.user); setLoading(false); })
@@ -26,16 +28,8 @@ export function HFLoginButton() {
 
   if (loading) return null;
 
-  // Build OAuth login URL — works on HF Spaces where /oauth/huggingface/login exists
-  const loginUrl =
-    typeof window !== "undefined" && window.location.port !== "3000"
-      ? "/oauth/huggingface/login"
-      : "http://localhost:8000/oauth/huggingface/login";
-
-  const logoutUrl =
-    typeof window !== "undefined" && window.location.port !== "3000"
-      ? "/oauth/huggingface/logout"
-      : "http://localhost:8000/oauth/huggingface/logout";
+  // Don't render anything on localhost — no OAuth available
+  if (!isHFSpaces) return null;
 
   if (user) {
     return (
@@ -49,7 +43,7 @@ export function HFLoginButton() {
         )}
         <span className="text-xs text-blue-200">{user.name || user.username}</span>
         <a
-          href={logoutUrl}
+          href="/oauth/huggingface/logout"
           className="text-[10px] text-blue-300 hover:text-white underline ml-1"
         >
           logout
@@ -60,7 +54,7 @@ export function HFLoginButton() {
 
   return (
     <a
-      href={loginUrl}
+      href="/oauth/huggingface/login"
       className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-blue-100 hover:text-white transition-colors"
     >
       <svg className="w-3.5 h-3.5" viewBox="0 0 95 88" fill="currentColor">
