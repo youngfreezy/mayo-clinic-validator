@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 /** Stable session ID persisted in sessionStorage. */
@@ -14,11 +14,17 @@ function getSessionId(): string {
   return sid;
 }
 
-/** Sends a pageview beacon on every route change. */
+/** Sends a pageview beacon on every route change. Dedupes StrictMode double-fires. */
 export function usePageView() {
   const pathname = usePathname();
+  const lastSent = useRef<string>("");
 
   useEffect(() => {
+    // Dedupe: skip if we already sent for this exact pathname
+    const key = `${pathname}:${Math.floor(Date.now() / 2000)}`; // 2-second window
+    if (lastSent.current === key) return;
+    lastSent.current = key;
+
     const base =
       process.env.NEXT_PUBLIC_API_URL ||
       (typeof window !== "undefined" && window.location.port === "3000"

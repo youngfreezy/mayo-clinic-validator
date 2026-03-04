@@ -22,11 +22,14 @@ interface AnalyticsData {
   period_days: number;
 }
 
+const PAGE_SIZE = 15;
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [recentPage, setRecentPage] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -188,51 +191,80 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          {/* Recent visits */}
+          {/* Recent visits (paginated) */}
           <div className="bg-white rounded-xl border p-5">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Recent Visits (Last 50)</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Recent Visits ({data.recent.length} total)
+            </p>
             {data.recent.length === 0 ? (
               <p className="text-xs text-gray-400 italic">No data yet</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="pb-2 font-semibold">Time</th>
-                      <th className="pb-2 font-semibold">Path</th>
-                      <th className="pb-2 font-semibold">HF User</th>
-                      <th className="pb-2 font-semibold">IP</th>
-                      <th className="pb-2 font-semibold">Referrer</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.recent.map((r, i) => (
-                      <tr key={i} className="border-b border-gray-50">
-                        <td className="py-1.5 text-gray-500 whitespace-nowrap">
-                          {new Date(r.created_at).toLocaleString()}
-                        </td>
-                        <td className="py-1.5 font-mono text-gray-700">{r.path}</td>
-                        <td className="py-1.5">
-                          {r.hf_user ? (
-                            <a
-                              href={`https://huggingface.co/${r.hf_user}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline font-medium"
-                            >
-                              {r.hf_user}
-                            </a>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="py-1.5 font-mono text-gray-600">{r.ip || "-"}</td>
-                        <td className="py-1.5 text-gray-500 truncate max-w-[200px]">{r.referrer || "-"}</td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-gray-500 border-b">
+                        <th className="pb-2 font-semibold">Time</th>
+                        <th className="pb-2 font-semibold">Path</th>
+                        <th className="pb-2 font-semibold">HF User</th>
+                        <th className="pb-2 font-semibold">IP</th>
+                        <th className="pb-2 font-semibold">Referrer</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {data.recent
+                        .slice(recentPage * PAGE_SIZE, (recentPage + 1) * PAGE_SIZE)
+                        .map((r, i) => (
+                        <tr key={recentPage * PAGE_SIZE + i} className="border-b border-gray-50">
+                          <td className="py-1.5 text-gray-500 whitespace-nowrap">
+                            {new Date(r.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-1.5 font-mono text-gray-700">{r.path}</td>
+                          <td className="py-1.5">
+                            {r.hf_user ? (
+                              <a
+                                href={`https://huggingface.co/${r.hf_user}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline font-medium"
+                              >
+                                {r.hf_user}
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 font-mono text-gray-600">{r.ip || "-"}</td>
+                          <td className="py-1.5 text-gray-500 truncate max-w-[200px]">{r.referrer || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {data.recent.length > PAGE_SIZE && (
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                    <span className="text-[11px] text-gray-400">
+                      {recentPage * PAGE_SIZE + 1}–{Math.min((recentPage + 1) * PAGE_SIZE, data.recent.length)} of {data.recent.length}
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setRecentPage((p) => Math.max(0, p - 1))}
+                        disabled={recentPage === 0}
+                        className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        onClick={() => setRecentPage((p) => Math.min(Math.ceil(data.recent.length / PAGE_SIZE) - 1, p + 1))}
+                        disabled={(recentPage + 1) * PAGE_SIZE >= data.recent.length}
+                        className="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>
