@@ -507,6 +507,29 @@ async def list_validations_endpoint() -> list:
     return await db.list_validations(limit=20)
 
 
+from fastapi import Request
+
+@app.post("/api/analytics/pageview")
+async def record_pageview(body: Dict[str, str], request: Request) -> Dict[str, str]:
+    """Record a page view event from the frontend."""
+    # Extract real IP — respect X-Forwarded-For from nginx/HF proxy
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    await db.record_page_view(
+        path=body.get("path", "/"),
+        referrer=body.get("referrer", ""),
+        user_agent=request.headers.get("user-agent", ""),
+        ip=ip,
+        session_id=body.get("session_id", ""),
+    )
+    return {"status": "ok"}
+
+
+@app.get("/api/analytics")
+async def get_analytics(days: int = 30) -> Dict[str, Any]:
+    """Return analytics summary for the dashboard."""
+    return await db.get_analytics_summary(days=min(days, 365))
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok", "service": "mayo-clinic-validator"}

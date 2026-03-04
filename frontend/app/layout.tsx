@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Analytics } from "@/components/Analytics";
 
 export const metadata: Metadata = {
   title: "Mayo Clinic Content Validator",
@@ -29,6 +30,7 @@ export default function RootLayout({
             </div>
           </div>
         </header>
+        <Analytics />
         <main className="max-w-5xl mx-auto px-6 py-8">{children}</main>
       </body>
     </html>

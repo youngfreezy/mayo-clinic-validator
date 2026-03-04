@@ -31,7 +31,7 @@ async def init_pool() -> None:
     global pool
     pool = AsyncConnectionPool(conninfo=_DSN, min_size=1, max_size=5, open=False)
     await pool.open()
-    await _create_table()
+    await _create_tables()
 
 
 async def close_pool() -> None:
@@ -39,8 +39,30 @@ async def close_pool() -> None:
         await pool.close()
 
 
-async def _create_table() -> None:
+async def _create_tables() -> None:
     async with pool.connection() as conn:
+        # --- page_views analytics ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS page_views (
+                id          SERIAL PRIMARY KEY,
+                path        TEXT NOT NULL,
+                referrer    TEXT,
+                user_agent  TEXT,
+                ip          TEXT,
+                session_id  TEXT,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_views_created_at
+            ON page_views (created_at DESC)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_page_views_path
+            ON page_views (path)
+        """)
+
+        # --- validations ---
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS validations (
                 id          TEXT PRIMARY KEY,
@@ -154,6 +176,101 @@ async def list_validations(limit: int = 20) -> List[Dict[str, Any]]:
             )
             rows = await cur.fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+async def record_page_view(
+    path: str, referrer: str = "", user_agent: str = "", ip: str = "", session_id: str = ""
+) -> None:
+    """Insert a page view event."""
+    async with pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO page_views (path, referrer, user_agent, ip, session_id) VALUES (%s, %s, %s, %s, %s)",
+            (path, referrer or None, user_agent or None, ip or None, session_id or None),
+        )
+
+
+async def get_analytics_summary(days: int = 30) -> Dict[str, Any]:
+    """Return analytics summary for the last N days."""
+    async with pool.connection() as conn:
+        async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # Total views
+            await cur.execute(
+                "SELECT COUNT(*) AS total FROM page_views WHERE created_at > NOW() - INTERVAL '%s days'",
+                (days,),
+            )
+            total = (await cur.fetchone())["total"]
+
+            # Unique visitors (by session_id)
+            await cur.execute(
+                "SELECT COUNT(DISTINCT session_id) AS unique_visitors FROM page_views "
+                "WHERE created_at > NOW() - INTERVAL '%s days' AND session_id IS NOT NULL",
+                (days,),
+            )
+            unique = (await cur.fetchone())["unique_visitors"]
+
+            # Views per day
+            await cur.execute(
+                "SELECT DATE(created_at) AS day, COUNT(*) AS views "
+                "FROM page_views WHERE created_at > NOW() - INTERVAL '%s days' "
+                "GROUP BY DATE(created_at) ORDER BY day",
+                (days,),
+            )
+            daily = [{"day": str(r["day"]), "views": r["views"]} for r in await cur.fetchall()]
+
+            # Top pages
+            await cur.execute(
+                "SELECT path, COUNT(*) AS views FROM page_views "
+                "WHERE created_at > NOW() - INTERVAL '%s days' "
+                "GROUP BY path ORDER BY views DESC LIMIT 10",
+                (days,),
+            )
+            top_pages = [dict(r) for r in await cur.fetchall()]
+
+            # Top referrers
+            await cur.execute(
+                "SELECT referrer, COUNT(*) AS views FROM page_views "
+                "WHERE created_at > NOW() - INTERVAL '%s days' AND referrer IS NOT NULL AND referrer != '' "
+                "GROUP BY referrer ORDER BY views DESC LIMIT 10",
+                (days,),
+            )
+            top_referrers = [dict(r) for r in await cur.fetchall()]
+
+            # Recent visits (last 50)
+            await cur.execute(
+                "SELECT path, referrer, ip, user_agent, session_id, created_at "
+                "FROM page_views ORDER BY created_at DESC LIMIT 50"
+            )
+            recent = []
+            for r in await cur.fetchall():
+                row = dict(r)
+                if row.get("created_at") and hasattr(row["created_at"], "isoformat"):
+                    row["created_at"] = row["created_at"].isoformat()
+                recent.append(row)
+
+            # Unique IPs
+            await cur.execute(
+                "SELECT ip, COUNT(*) AS views, MAX(created_at) AS last_seen "
+                "FROM page_views WHERE created_at > NOW() - INTERVAL '%s days' AND ip IS NOT NULL "
+                "GROUP BY ip ORDER BY views DESC LIMIT 50",
+                (days,),
+            )
+            visitors = []
+            for r in await cur.fetchall():
+                row = dict(r)
+                if row.get("last_seen") and hasattr(row["last_seen"], "isoformat"):
+                    row["last_seen"] = row["last_seen"].isoformat()
+                visitors.append(row)
+
+    return {
+        "total_views": total,
+        "unique_visitors": unique,
+        "daily": daily,
+        "top_pages": top_pages,
+        "top_referrers": top_referrers,
+        "visitors": visitors,
+        "recent": recent,
+        "period_days": days,
+    }
 
 
 def _row_to_dict(row: Dict[str, Any]) -> Dict[str, Any]:
