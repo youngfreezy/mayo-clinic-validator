@@ -50,9 +50,13 @@ async def _create_tables() -> None:
                 user_agent  TEXT,
                 ip          TEXT,
                 session_id  TEXT,
+                hf_user     TEXT,
                 created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        await conn.execute(
+            "ALTER TABLE page_views ADD COLUMN IF NOT EXISTS hf_user TEXT"
+        )
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_page_views_created_at
             ON page_views (created_at DESC)
@@ -179,13 +183,15 @@ async def list_validations(limit: int = 20) -> List[Dict[str, Any]]:
 
 
 async def record_page_view(
-    path: str, referrer: str = "", user_agent: str = "", ip: str = "", session_id: str = ""
+    path: str, referrer: str = "", user_agent: str = "", ip: str = "",
+    session_id: str = "", hf_user: str | None = None,
 ) -> None:
     """Insert a page view event."""
     async with pool.connection() as conn:
         await conn.execute(
-            "INSERT INTO page_views (path, referrer, user_agent, ip, session_id) VALUES (%s, %s, %s, %s, %s)",
-            (path, referrer or None, user_agent or None, ip or None, session_id or None),
+            "INSERT INTO page_views (path, referrer, user_agent, ip, session_id, hf_user) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (path, referrer or None, user_agent or None, ip or None, session_id or None, hf_user),
         )
 
 
@@ -237,7 +243,7 @@ async def get_analytics_summary(days: int = 30) -> Dict[str, Any]:
 
             # Recent visits (last 50)
             await cur.execute(
-                "SELECT path, referrer, ip, user_agent, session_id, created_at "
+                "SELECT path, referrer, ip, user_agent, session_id, hf_user, created_at "
                 "FROM page_views ORDER BY created_at DESC LIMIT 50"
             )
             recent = []
@@ -247,9 +253,9 @@ async def get_analytics_summary(days: int = 30) -> Dict[str, Any]:
                     row["created_at"] = row["created_at"].isoformat()
                 recent.append(row)
 
-            # Unique IPs
+            # Unique IPs with HF username if available
             await cur.execute(
-                "SELECT ip, COUNT(*) AS views, MAX(created_at) AS last_seen "
+                "SELECT ip, MAX(hf_user) AS hf_user, COUNT(*) AS views, MAX(created_at) AS last_seen "
                 "FROM page_views WHERE created_at > NOW() - INTERVAL '%s days' AND ip IS NOT NULL "
                 "GROUP BY ip ORDER BY views DESC LIMIT 50",
                 (days,),

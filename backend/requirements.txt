@@ -30,6 +30,10 @@ python-dotenv>=1.0.0
 # Graph DB (Neo4j Aura for validation rules engine)
 neo4j>=5.20.0
 
+# HF OAuth (Sign in with Hugging Face)
+huggingface_hub[fastapi]>=0.25.0
+itsdangerous>=2.1.0
+
 # Evals
 ragas>=0.2.0
 datasets>=2.18.0

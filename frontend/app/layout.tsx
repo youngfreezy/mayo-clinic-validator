@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Analytics } from "@/components/Analytics";
+import { HFLoginButton } from "@/components/HFLoginButton";
 
 export const metadata: Metadata = {
   title: "Mayo Clinic Content Validator",
@@ -16,18 +17,21 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen bg-gray-50">
         <header className="bg-mayo-blue text-white shadow-md">
-          <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3">
-            <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
-              <span className="text-mayo-blue font-bold text-sm">M</span>
+          <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                <span className="text-mayo-blue font-bold text-sm">M</span>
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold tracking-tight">
+                  Mayo Clinic Content Validator
+                </h1>
+                <p className="text-xs text-blue-200">
+                  Multi-agent LangGraph validation pipeline
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight">
-                Mayo Clinic Content Validator
-              </h1>
-              <p className="text-xs text-blue-200">
-                Multi-agent LangGraph validation pipeline
-              </p>
-            </div>
+            <HFLoginButton />
           </div>
         </header>
         <Analytics />

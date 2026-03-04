@@ -5,6 +5,8 @@ colorFrom: blue
 colorTo: indigo
 sdk: docker
 pinned: false
+hf_oauth: true
+hf_oauth_expiration_minutes: 480
 ---
 
 # Mayo Clinic Content Validator

@@ -91,6 +91,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Attach HF OAuth (adds /oauth/huggingface/login, /callback, /logout)
+# Works on HF Spaces with hf_oauth: true; mocks user locally for dev.
+import os
+if os.getenv("OAUTH_CLIENT_ID"):
+    from huggingface_hub import attach_huggingface_oauth
+    attach_huggingface_oauth(app)
+else:
+    # Local dev — add SessionMiddleware so parse_huggingface_oauth returns None
+    # instead of crashing. No OAuth routes are added.
+    from starlette.middleware.sessions import SessionMiddleware
+    app.add_middleware(SessionMiddleware, secret_key="local-dev-secret")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -509,17 +521,51 @@ async def list_validations_endpoint() -> list:
 
 from fastapi import Request
 
+
+def _get_hf_user(request: Request) -> str | None:
+    """Extract HF username from OAuth session, if logged in."""
+    try:
+        from huggingface_hub import parse_huggingface_oauth
+        oauth_info = parse_huggingface_oauth(request)
+        if oauth_info and oauth_info.user_info:
+            return oauth_info.user_info.preferred_username
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request) -> Dict[str, Any]:
+    """Return current HF user info, or null if not logged in."""
+    username = _get_hf_user(request)
+    if not username:
+        return {"user": None}
+    try:
+        from huggingface_hub import parse_huggingface_oauth
+        oauth_info = parse_huggingface_oauth(request)
+        return {
+            "user": {
+                "username": oauth_info.user_info.preferred_username,
+                "name": oauth_info.user_info.name,
+                "picture": oauth_info.user_info.picture,
+            }
+        }
+    except Exception:
+        return {"user": {"username": username}}
+
+
 @app.post("/api/analytics/pageview")
 async def record_pageview(body: Dict[str, str], request: Request) -> Dict[str, str]:
     """Record a page view event from the frontend."""
-    # Extract real IP — respect X-Forwarded-For from nginx/HF proxy
     ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    hf_user = _get_hf_user(request)
     await db.record_page_view(
         path=body.get("path", "/"),
         referrer=body.get("referrer", ""),
         user_agent=request.headers.get("user-agent", ""),
         ip=ip,
         session_id=body.get("session_id", ""),
+        hf_user=hf_user,
     )
     return {"status": "ok"}
 

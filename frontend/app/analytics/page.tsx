@@ -9,13 +9,14 @@ interface AnalyticsData {
   daily: { day: string; views: number }[];
   top_pages: { path: string; views: number }[];
   top_referrers: { referrer: string; views: number }[];
-  visitors: { ip: string; views: number; last_seen: string }[];
+  visitors: { ip: string; hf_user: string | null; views: number; last_seen: string }[];
   recent: {
     path: string;
     referrer: string | null;
     ip: string | null;
     user_agent: string | null;
     session_id: string | null;
+    hf_user: string | null;
     created_at: string;
   }[];
   period_days: number;
@@ -154,6 +155,7 @@ export default function AnalyticsPage() {
                   <thead>
                     <tr className="text-left text-gray-500 border-b">
                       <th className="pb-2 font-semibold">IP Address</th>
+                      <th className="pb-2 font-semibold">HF User</th>
                       <th className="pb-2 font-semibold">Views</th>
                       <th className="pb-2 font-semibold">Last Seen</th>
                     </tr>
@@ -162,6 +164,20 @@ export default function AnalyticsPage() {
                     {data.visitors.map((v) => (
                       <tr key={v.ip} className="border-b border-gray-50">
                         <td className="py-1.5 font-mono text-gray-700">{v.ip}</td>
+                        <td className="py-1.5">
+                          {v.hf_user ? (
+                            <a
+                              href={`https://huggingface.co/${v.hf_user}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline font-medium"
+                            >
+                              {v.hf_user}
+                            </a>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
                         <td className="py-1.5 text-gray-600">{v.views}</td>
                         <td className="py-1.5 text-gray-500">{new Date(v.last_seen).toLocaleString()}</td>
                       </tr>
@@ -184,6 +200,7 @@ export default function AnalyticsPage() {
                     <tr className="text-left text-gray-500 border-b">
                       <th className="pb-2 font-semibold">Time</th>
                       <th className="pb-2 font-semibold">Path</th>
+                      <th className="pb-2 font-semibold">HF User</th>
                       <th className="pb-2 font-semibold">IP</th>
                       <th className="pb-2 font-semibold">Referrer</th>
                     </tr>
@@ -195,6 +212,20 @@ export default function AnalyticsPage() {
                           {new Date(r.created_at).toLocaleString()}
                         </td>
                         <td className="py-1.5 font-mono text-gray-700">{r.path}</td>
+                        <td className="py-1.5">
+                          {r.hf_user ? (
+                            <a
+                              href={`https://huggingface.co/${r.hf_user}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline font-medium"
+                            >
+                              {r.hf_user}
+                            </a>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
                         <td className="py-1.5 font-mono text-gray-600">{r.ip || "-"}</td>
                         <td className="py-1.5 text-gray-500 truncate max-w-[200px]">{r.referrer || "-"}</td>
                       </tr>
