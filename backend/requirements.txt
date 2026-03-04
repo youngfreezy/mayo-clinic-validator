@@ -31,7 +31,8 @@ python-dotenv>=1.0.0
 neo4j>=5.20.0
 
 # HF OAuth (Sign in with Hugging Face)
-huggingface_hub[fastapi]>=0.25.0
+# The [oauth] extra installs authlib, fastapi, httpx, itsdangerous
+huggingface_hub[oauth]>=0.25.0
 itsdangerous>=2.1.0
 
 # Evals

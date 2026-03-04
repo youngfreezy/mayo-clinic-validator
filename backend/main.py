@@ -94,9 +94,17 @@ app = FastAPI(
 # Attach HF OAuth (adds /oauth/huggingface/login, /callback, /logout)
 # Works on HF Spaces with hf_oauth: true; mocks user locally for dev.
 import os
+logger = logging.getLogger(__name__)
+
 if os.getenv("OAUTH_CLIENT_ID"):
-    from huggingface_hub import attach_huggingface_oauth
-    attach_huggingface_oauth(app)
+    try:
+        from huggingface_hub import attach_huggingface_oauth
+        attach_huggingface_oauth(app)
+        logger.info("HF OAuth attached successfully (OAUTH_CLIENT_ID is set)")
+    except Exception as e:
+        logger.error(f"Failed to attach HF OAuth: {e}", exc_info=True)
+        # NOTE: Do NOT add SessionMiddleware here — attach_huggingface_oauth
+        # already added one before it failed. Adding a second one causes conflicts.
 else:
     # Local dev — add SessionMiddleware so parse_huggingface_oauth returns None
     # instead of crashing. No OAuth routes are added.
