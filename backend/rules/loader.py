@@ -81,6 +81,66 @@ def _parse_rules_from_json(
     )
 
 
+async def _inject_community_feedback(rule_set: AgentRuleSet) -> AgentRuleSet:
+    """
+    Enrich a rule set with community feedback from Moltbook.
+
+    Only injects feedback context when signal_count >= 5 to avoid noise.
+    Backward compatible — if DB is unavailable or no feedback exists,
+    the rule set is returned unchanged.
+    """
+    try:
+        import db as db_module
+        if db_module.pool is None:
+            return rule_set
+
+        from moltbook.feedback_loop import get_all_actionable_feedback, SIGNAL_THRESHOLD
+        actionable = await get_all_actionable_feedback(db_module.pool)
+        if not actionable:
+            return rule_set
+
+        # Build feedback lines for rules belonging to this agent
+        feedback_lines = []
+        for fb in actionable:
+            rule_id = fb["rule_id"]
+            # Match feedback to this agent's rules by rule_id or agent_name
+            is_relevant = (
+                rule_id == rule_set.agent_name
+                or any(r.id == rule_id for r in rule_set.rules)
+            )
+            if not is_relevant:
+                continue
+
+            total = fb["total"]
+            fb_type = fb["feedback_type"]
+            feedback_lines.append(
+                f"Community feedback: {total} reports of '{fb_type}' for rule '{rule_id}' "
+                f"(human review recommended)"
+            )
+
+        if feedback_lines:
+            existing_context = rule_set.context or ""
+            feedback_block = "\n".join(feedback_lines)
+            rule_set.context = (
+                f"{existing_context}\n\nMOLTBOOK COMMUNITY FEEDBACK:\n{feedback_block}"
+                if existing_context
+                else f"MOLTBOOK COMMUNITY FEEDBACK:\n{feedback_block}"
+            )
+            logger.info(
+                "Injected %d community feedback signals into %s rules",
+                len(feedback_lines),
+                rule_set.agent_name,
+            )
+
+    except ImportError:
+        # moltbook module not available — backward compatible
+        pass
+    except Exception as e:
+        logger.warning("Failed to inject community feedback for %s: %s", rule_set.agent_name, e)
+
+    return rule_set
+
+
 async def get_rules_for_agent(
     agent_name: str,
     content_type: str = "standard",
@@ -89,6 +149,7 @@ async def get_rules_for_agent(
     Load rules for an agent. Tries Neo4j first, falls back to JSON.
 
     Returns an AgentRuleSet with .source indicating where rules came from.
+    Community feedback from Moltbook is injected when signal_count >= 5.
     """
     # Try Neo4j if credentials are configured
     neo4j_uri = getattr(settings, "NEO4J_URI", "")
@@ -115,7 +176,7 @@ async def get_rules_for_agent(
                 agent_json = json_data.get("agents", {}).get(agent_name, {})
                 rule_set.scoring = agent_json.get("scoring", {})
                 rule_set.context = agent_json.get("context")
-                return rule_set
+                return await _inject_community_feedback(rule_set)
             else:
                 logger.info("Neo4j returned no rules for %s/%s, falling back to JSON", agent_name, content_type)
         except Exception as e:
@@ -128,7 +189,7 @@ async def get_rules_for_agent(
             "Loaded %d rules for %s from JSON fallback (v%s)",
             len(rule_set.rules), agent_name, rule_set.rules_version,
         )
-        return rule_set
+        return await _inject_community_feedback(rule_set)
 
     # Last resort: return an empty rule set so agents don't crash
     logger.error("No rules found for agent %s — returning empty rule set", agent_name)

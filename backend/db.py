@@ -99,6 +99,48 @@ async def _create_tables() -> None:
                 f"ALTER TABLE validations ADD COLUMN IF NOT EXISTS {col} {defn}"
             )
 
+        # --- moltbook_posts (Moltbook integration) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_posts (
+                id              SERIAL PRIMARY KEY,
+                validation_id   TEXT,
+                moltbook_post_id TEXT NOT NULL,
+                title           TEXT,
+                upvotes         INTEGER DEFAULT 0,
+                downvotes       INTEGER DEFAULT 0,
+                comment_count   INTEGER DEFAULT 0,
+                posted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_moltbook_posts_validation_id
+            ON moltbook_posts (validation_id)
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_moltbook_posts_moltbook_id
+            ON moltbook_posts (moltbook_post_id)
+        """)
+
+        # --- moltbook_feedback (community feedback on rules) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_feedback (
+                id              SERIAL PRIMARY KEY,
+                rule_id         TEXT NOT NULL,
+                feedback_type   TEXT NOT NULL
+                    CHECK (feedback_type IN ('too_strict', 'too_lenient', 'correct', 'incorrect')),
+                source          TEXT,
+                signal_count    INTEGER DEFAULT 1,
+                details         JSONB DEFAULT '{}',
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_moltbook_feedback_rule_id
+            ON moltbook_feedback (rule_id)
+        """)
+
 
 async def upsert_validation(state: Dict[str, Any]) -> None:
     """Insert or update a validation record from a ValidationState dict."""
