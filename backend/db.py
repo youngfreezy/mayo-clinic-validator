@@ -141,6 +141,15 @@ async def _create_tables() -> None:
             ON moltbook_feedback (rule_id)
         """)
 
+        # --- moltbook_dreams (dream cycle consolidation) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_dreams (
+                id          SERIAL PRIMARY KEY,
+                insights    JSONB NOT NULL DEFAULT '[]',
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
 
 async def upsert_validation(state: Dict[str, Any]) -> None:
     """Insert or update a validation record from a ValidationState dict."""

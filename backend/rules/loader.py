@@ -132,6 +132,28 @@ async def _inject_community_feedback(rule_set: AgentRuleSet) -> AgentRuleSet:
                 rule_set.agent_name,
             )
 
+        # Inject dream insights (consolidated community insights)
+        try:
+            from moltbook.dream import get_latest_dream_insights
+            dream_insights = await get_latest_dream_insights(db_module.pool)
+            if dream_insights:
+                dream_block = "\n".join(
+                    f"{i + 1}. {ins}" for i, ins in enumerate(dream_insights)
+                )
+                existing = rule_set.context or ""
+                rule_set.context = (
+                    f"{existing}\n\nCONSOLIDATED COMMUNITY INSIGHTS:\n"
+                    f"(Durable learnings from periodic deep reflection on validation performance.)\n"
+                    f"{dream_block}"
+                )
+                logger.info(
+                    "Injected %d dream insights into %s rules",
+                    len(dream_insights),
+                    rule_set.agent_name,
+                )
+        except Exception as dream_exc:
+            logger.debug("Dream insight injection skipped for %s: %s", rule_set.agent_name, dream_exc)
+
     except ImportError:
         # moltbook module not available — backward compatible
         pass

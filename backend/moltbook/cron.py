@@ -26,6 +26,7 @@ from typing import Any, Dict, List
 from moltbook.client import MoltbookClient, RateLimitError
 from moltbook.sanitize import sanitize
 from moltbook.feedback_loop import process_post_engagement
+from moltbook.dream import run_dream_cycle
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -37,6 +38,9 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+# Cycle counter for dream triggering (persisted via DB, see _get_and_increment_cycle)
+_DREAM_CYCLE_INTERVAL = 5
 
 # Health-related keywords to identify relevant feed posts
 _HEALTH_KEYWORDS = [
@@ -253,6 +257,27 @@ async def run_cron() -> None:
         except Exception as e:
             logger.error("Failed engagement processing: %s", e)
 
+        # ------------------------------------------------------------------
+        # Step 9: Track cycle count and trigger dream cycle every 5th cycle
+        # ------------------------------------------------------------------
+        try:
+            cycle_count = await _get_and_increment_cycle(pool)
+            if cycle_count % _DREAM_CYCLE_INTERVAL == 0:
+                logger.info(
+                    "Step 9: Cycle %d -- entering dream cycle (sleep-time compute)...",
+                    cycle_count,
+                )
+                try:
+                    await run_dream_cycle(pool)
+                    logger.info("Dream cycle complete")
+                except Exception as e:
+                    logger.error("Dream cycle failed: %s", e)
+            else:
+                logger.info("Cycle %d -- next dream in %d cycles",
+                            cycle_count, _DREAM_CYCLE_INTERVAL - (cycle_count % _DREAM_CYCLE_INTERVAL))
+        except Exception as e:
+            logger.error("Failed to track cycle / run dream: %s", e)
+
         logger.info("Moltbook cron cycle complete.")
 
     finally:
@@ -354,6 +379,33 @@ async def _get_recent_completed_validation(pool) -> Dict[str, Any] | None:
             """)
             row = await cur.fetchone()
             return dict(row) if row else None
+
+
+async def _get_and_increment_cycle(pool) -> int:
+    """Track cron cycle count in a single-row DB table.
+
+    Creates the table on first use. Returns the new cycle count.
+    """
+    async with pool.connection() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_cron_state (
+                id          INTEGER PRIMARY KEY DEFAULT 1,
+                cycle_count INTEGER NOT NULL DEFAULT 0,
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CHECK (id = 1)
+            )
+        """)
+        await conn.execute("""
+            INSERT INTO moltbook_cron_state (id, cycle_count, updated_at)
+            VALUES (1, 1, NOW())
+            ON CONFLICT (id) DO UPDATE
+            SET cycle_count = moltbook_cron_state.cycle_count + 1,
+                updated_at = NOW()
+        """)
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT cycle_count FROM moltbook_cron_state WHERE id = 1")
+            row = await cur.fetchone()
+            return row[0] if row else 1
 
 
 async def _get_recent_moltbook_posts(pool, days: int = 7) -> List[Dict[str, Any]]:
