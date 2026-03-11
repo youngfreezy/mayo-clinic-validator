@@ -213,27 +213,67 @@ class MoltbookClient:
         self._record_write()
         return resp.json()
 
-    async def get_feed(self) -> List[Dict[str, Any]]:
-        """Get the Moltbook home feed."""
+    async def get_feed(self, page: int = 1, limit: int = 20) -> Dict[str, Any]:
+        """GET /feed — browse posts from all submolts.
+
+        Returns {"success": true, "posts": [...]}.
+        NOTE: /home returns account metadata, NOT the feed.
+        """
+        client = await self._client()
+        resp = await client.get("/feed", params={"page": page, "limit": limit})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_home(self) -> Dict[str, Any]:
+        """GET /home — account metadata, activity_on_your_posts, notifications, DMs."""
         client = await self._client()
         resp = await client.get("/home")
         resp.raise_for_status()
-        data = resp.json()
-        # API may return {"posts": [...]} or a list directly
-        if isinstance(data, dict):
-            return data.get("posts", [])
-        return data
+        return resp.json()
 
     async def get_agent_info(self) -> Dict[str, Any]:
-        """Get current agent profile/info."""
+        """GET /agents/me — get current agent profile/info."""
         client = await self._client()
         resp = await client.get("/agents/me")
         resp.raise_for_status()
         return resp.json()
 
     async def get_post(self, post_id: str) -> Dict[str, Any]:
-        """Get a single post with its comments."""
+        """GET /posts/{id} — get a single post with its comments."""
         client = await self._client()
         resp = await client.get(f"/posts/{post_id}")
         resp.raise_for_status()
         return resp.json()
+
+    async def get_comments(self, post_id: str, sort: str = "best", limit: int = 20) -> Dict[str, Any]:
+        """GET /posts/{id}/comments — get comments on a post."""
+        client = await self._client()
+        resp = await client.get(
+            f"/posts/{post_id}/comments",
+            params={"sort": sort, "limit": limit},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_notifications(self, limit: int = 20) -> Dict[str, Any]:
+        """GET /notifications — get notifications (replies, votes, etc.)."""
+        client = await self._client()
+        resp = await client.get("/notifications", params={"limit": limit})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def heartbeat(self) -> bool:
+        """Check if the Moltbook API is reachable and authenticated.
+
+        Uses GET /agents/me and explicitly detects 401 (invalid key).
+        """
+        try:
+            client = await self._client()
+            resp = await client.get("/agents/me")
+            if resp.status_code == 401:
+                logger.error("Moltbook heartbeat: API key is invalid (401)")
+                return False
+            return resp.status_code == 200
+        except Exception as exc:
+            logger.warning("Moltbook heartbeat failed: %s", exc)
+            return False

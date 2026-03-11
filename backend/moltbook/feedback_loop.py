@@ -123,8 +123,12 @@ async def process_post_engagement(
                 if isinstance(issue, dict) and issue.get("rule_id"):
                     rule_ids.add(issue["rule_id"])
 
-        # Classify each comment (sanitize first!)
+        # Classify each comment (filter spam, sanitize first!)
         for comment in comments:
+            # Skip spam comments
+            if comment.get("is_spam", False):
+                continue
+
             raw_body = comment.get("body", "") or comment.get("text", "")
             clean_body = sanitize(raw_body, context="moltbook_comment", max_length=500)
             feedback_type = _classify_comment(clean_body)

@@ -105,6 +105,12 @@ def _format_validation_post(validation: Dict[str, Any]) -> tuple[str, str]:
         if feedback:
             body_lines.append(f"Human Feedback: {feedback[:200]}")
 
+    # Append community help request based on current problems/blockers
+    help_request = _generate_help_request(validation)
+    if help_request:
+        body_lines.append("")
+        body_lines.append(help_request)
+
     return title[:200], "\n".join(body_lines)[:2000]
 
 
@@ -122,6 +128,54 @@ def _format_comment(validation: Dict[str, Any]) -> str:
     )
 
 
+def _generate_help_request(validation: Dict[str, Any]) -> str:
+    """Generate a community help request based on validation problems.
+
+    Appended to performance posts to ask the community for advice.
+    SECURITY: Never includes PII or sensitive data.
+    """
+    findings = validation.get("findings", [])
+    if isinstance(findings, str):
+        findings = json.loads(findings)
+
+    passed = validation.get("overall_passed")
+    score = validation.get("overall_score")
+
+    lines: List[str] = []
+
+    # If validation failed, ask about the failing agents
+    if passed is False:
+        failing_agents = []
+        for finding in findings:
+            if isinstance(finding, dict) and finding.get("passed") is False:
+                agent = finding.get("agent", "unknown")
+                failing_agents.append(agent)
+        if failing_agents:
+            lines.append(
+                f"Looking for help: our {', '.join(failing_agents[:3])} "
+                f"agent(s) flagged issues. Anyone seen similar patterns?"
+            )
+
+    # If score is low, ask for general advice
+    if score is not None and score < 0.5 and not lines:
+        lines.append(
+            f"Low confidence score ({score:.1f}/1.0). "
+            f"Has anyone validated similar content and found ways to improve accuracy?"
+        )
+
+    # If there are errors, mention them generically
+    errors = validation.get("errors", [])
+    if isinstance(errors, str):
+        errors = json.loads(errors)
+    if errors and not lines:
+        lines.append(
+            f"Hit {len(errors)} error(s) during validation. "
+            f"Any tips on improving reliability for health content validation?"
+        )
+
+    return "\n".join(lines)
+
+
 async def run_cron() -> None:
     """Execute the full Moltbook cron cycle."""
     # Late imports to allow running from project root
@@ -137,15 +191,18 @@ async def run_cron() -> None:
 
     try:
         # ------------------------------------------------------------------
-        # Step 1: Heartbeat check
+        # Step 1: Heartbeat check (GET /agents/me, detects 401)
         # ------------------------------------------------------------------
         logger.info("Step 1: Checking Moltbook agent heartbeat...")
+        alive = await client.heartbeat()
+        if not alive:
+            logger.error("Moltbook heartbeat failed — aborting cron")
+            return
         try:
             agent_info = await client.get_agent_info()
             logger.info("Agent connected: %s", agent_info.get("name", "unknown"))
         except Exception as e:
-            logger.error("Moltbook heartbeat failed: %s — aborting cron", e)
-            return
+            logger.warning("Could not fetch agent info (non-fatal): %s", e)
 
         # ------------------------------------------------------------------
         # Initialize DB pool
@@ -182,7 +239,9 @@ async def run_cron() -> None:
         # ------------------------------------------------------------------
         logger.info("Step 4: Scanning Moltbook feed...")
         try:
-            feed = await client.get_feed()
+            feed_data = await client.get_feed(page=1, limit=20)
+            # /feed returns {"success": true, "posts": [...]}
+            feed = feed_data.get("posts") or []
             logger.info("Feed contains %d posts", len(feed))
 
             for post in feed:
@@ -211,6 +270,7 @@ async def run_cron() -> None:
                 try:
                     comment_text = _format_comment(recent)
                     await client.comment(post_id, comment_text)
+                    await _record_commented(pool, post_id)
                     logger.info("Commented on post %s", post_id)
                 except RateLimitError as e:
                     logger.warning("Rate limited, stopping comments: %s", e)
@@ -222,9 +282,20 @@ async def run_cron() -> None:
             logger.error("Failed to scan feed: %s", e)
 
         # ------------------------------------------------------------------
-        # Step 6-8: Fetch engagement and update feedback
+        # Step 6-8: Fetch engagement via /home + /posts/:id/comments + /notifications
         # ------------------------------------------------------------------
         logger.info("Step 6: Fetching engagement on past posts...")
+
+        # Strategy 1: Use /home activity_on_your_posts for quick overview
+        try:
+            home_data = await client.get_home()
+            activity = home_data.get("activity_on_your_posts") or []
+            if activity:
+                logger.info("Home activity: %d items on our posts", len(activity))
+        except Exception as e:
+            logger.debug("Failed to check /home activity: %s", e)
+
+        # Strategy 2: Fetch comments on our recent posts via /posts/:id/comments
         try:
             recent_posts = await _get_recent_moltbook_posts(pool, days=7)
             logger.info("Checking engagement on %d recent posts", len(recent_posts))
@@ -232,15 +303,25 @@ async def run_cron() -> None:
             for post_record in recent_posts:
                 mb_id = post_record["moltbook_post_id"]
                 try:
+                    # Use dedicated comments endpoint
+                    comments_data = await client.get_comments(mb_id, limit=20)
+                    all_comments = comments_data.get("comments") or []
+
+                    # Filter out spam comments
+                    comments = [c for c in all_comments if not c.get("is_spam", False)]
+                    spam_count = len(all_comments) - len(comments)
+                    if spam_count > 0:
+                        logger.info("Filtered %d spam comments on post %s", spam_count, mb_id)
+
+                    # Also get vote data from the post itself
                     post_data = await client.get_post(mb_id)
                     upvotes = post_data.get("upvotes", 0)
                     downvotes = post_data.get("downvotes", 0)
-                    comments = post_data.get("comments", [])
 
                     # SECURITY: sanitize all comment content
                     for c in comments:
                         c["body"] = sanitize(
-                            c.get("body", ""),
+                            c.get("body", c.get("content", "")),
                             context="engagement_comment",
                         )
 
@@ -248,14 +329,28 @@ async def run_cron() -> None:
                         pool, mb_id, upvotes, downvotes, comments,
                     )
                     logger.info(
-                        "Updated engagement for %s: +%d/-%d, %d comments",
-                        mb_id, upvotes, downvotes, len(comments),
+                        "Updated engagement for %s: +%d/-%d, %d comments (%d spam filtered)",
+                        mb_id, upvotes, downvotes, len(comments), spam_count,
                     )
                 except Exception as e:
                     logger.error("Failed to fetch engagement for %s: %s", mb_id, e)
 
         except Exception as e:
             logger.error("Failed engagement processing: %s", e)
+
+        # Strategy 3: Check notifications for replies we may have missed
+        try:
+            notifs = await client.get_notifications(limit=20)
+            notif_list = notifs.get("notifications") or notifs.get("data") or []
+            reply_notifs = [
+                n for n in notif_list
+                if "comment" in n.get("type", "").lower()
+                or "reply" in n.get("type", "").lower()
+            ]
+            if reply_notifs:
+                logger.info("Found %d reply notifications", len(reply_notifs))
+        except Exception as e:
+            logger.debug("Failed to check notifications: %s", e)
 
         # ------------------------------------------------------------------
         # Step 9: Track cycle count and trigger dream cycle every 5th cycle
@@ -314,6 +409,15 @@ async def _ensure_tables(pool) -> None:
             ON moltbook_posts (moltbook_post_id)
         """)
 
+        # Track post IDs we've commented on (persistent, survives deploys)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_commented_posts (
+                id              SERIAL PRIMARY KEY,
+                moltbook_post_id TEXT UNIQUE NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS moltbook_feedback (
                 id              SERIAL PRIMARY KEY,
@@ -357,14 +461,30 @@ async def _record_post(pool, validation_id: str, moltbook_post_id: str, title: s
 
 
 async def _has_commented(pool, moltbook_post_id: str) -> bool:
-    """Check if we've already processed/commented on a post."""
+    """Check if we've already commented on a post (persisted to Postgres)."""
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
+            # Check both our own posts table and the commented posts table
             await cur.execute(
                 "SELECT 1 FROM moltbook_posts WHERE moltbook_post_id = %s LIMIT 1",
                 (moltbook_post_id,),
             )
+            if await cur.fetchone() is not None:
+                return True
+            await cur.execute(
+                "SELECT 1 FROM moltbook_commented_posts WHERE moltbook_post_id = %s LIMIT 1",
+                (moltbook_post_id,),
+            )
             return await cur.fetchone() is not None
+
+
+async def _record_commented(pool, moltbook_post_id: str) -> None:
+    """Persist that we've commented on a post (survives deploys)."""
+    async with pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO moltbook_commented_posts (moltbook_post_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            (moltbook_post_id,),
+        )
 
 
 async def _get_recent_completed_validation(pool) -> Dict[str, Any] | None:

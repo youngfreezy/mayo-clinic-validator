@@ -122,6 +122,15 @@ async def _create_tables() -> None:
             ON moltbook_posts (moltbook_post_id)
         """)
 
+        # --- moltbook_commented_posts (persistent comment tracking) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS moltbook_commented_posts (
+                id              SERIAL PRIMARY KEY,
+                moltbook_post_id TEXT UNIQUE NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
         # --- moltbook_feedback (community feedback on rules) ---
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS moltbook_feedback (
