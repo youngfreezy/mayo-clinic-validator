@@ -25,7 +25,7 @@ import re
 from typing import Any
 
 from mcp.server import Server
-from mcp.server.stdio import run_server
+from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 logger = logging.getLogger(__name__)
@@ -587,4 +587,9 @@ async def mcp_call_tool(name: str, arguments: dict) -> list[TextContent]:
 if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-    asyncio.run(run_server(server))
+
+    async def _main():
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+
+    asyncio.run(_main())

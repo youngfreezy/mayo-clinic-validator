@@ -42,6 +42,9 @@ class Settings(BaseSettings):
             self.PGVECTOR_CONNECTION_STRING = url
         return self
 
+    # Moltbook
+    MOLTBOOK_API_KEY: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
