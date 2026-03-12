@@ -121,9 +121,9 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
   },
   {
     color: "bg-sky-500",
-    label: "Triage / Conditional Routing",
+    label: "Dynamic Tool Selection",
     description:
-      "A deterministic (non-AI, rule-based) routing layer that inspects the URL path to classify the content type. Pages whose URL contains '/healthy-lifestyle/' are classified as HIL (Health Information Library) content \u2014 these are wellness articles that often contain HTML formatting issues. HIL pages receive all 5 validation agents including the Empty Tag Check. Standard pages (disease/condition pages, symptom pages, etc.) receive only the 4 LLM-based agents. Because this routing is pure string matching, it adds zero latency and zero cost. The triage node also records a 'rules_version' string from the JSON rules file so that every validation result can be traced back to the exact rule set that was applied.",
+      "Instead of a fixed deterministic router, the Claude orchestrator agent analyzes the scraped content and URL path to dynamically decide which validators to run. For '/healthy-lifestyle/' URLs, it includes the Empty Tag Check tool. For standard medical content, it skips it. The agent can also skip validators when input data is missing or re-run a check if results seem unreliable. This replaces the previous fixed LangGraph triage node with AI reasoning about content type and validator relevance.",
   },
   {
     color: "bg-cyan-600",
@@ -133,9 +133,9 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
   },
   {
     color: "bg-indigo-600",
-    label: "LLM Agents (GPT-5.1)",
+    label: "MCP Validator Tools (GPT-5.1)",
     description:
-      "Four specialized LLM (Large Language Model) agents powered by OpenAI\u2019s GPT-5.1 run in parallel via LangGraph\u2019s Send API (a mechanism for fanning out work to multiple graph nodes simultaneously, similar to Python\u2019s asyncio.gather but within the graph execution framework). Each agent receives the scraped content plus its dynamically-loaded rule set, evaluates the content against those rules, and returns a structured JSON finding with: a boolean pass/fail status, a 0.0\u20131.0 confidence score, a list of passed checks (rules the content satisfied), issues found (specific violations with details), and actionable recommendations. All agents use JSON mode (which constrains the model to only output syntactically valid JSON, preventing parsing errors), temperature=0 (making output fully deterministic \u2014 the same input always produces the same output), and a 120-second request timeout to prevent hanging on slow API calls.",
+      "Five specialized validation tools exposed via MCP (Model Context Protocol) and called by the Claude orchestrator agent. When Claude returns multiple tool_use blocks in a single response, all tools execute in parallel via asyncio.gather. Each validator receives scraped content (injected from cache) plus dynamically-loaded rules, evaluates the content, and returns a structured JSON finding with: a boolean pass/fail status, a 0.0\u20131.0 confidence score, passed checks, issues found, and actionable recommendations. The internal LLM calls within each validator use GPT-5.1 with JSON mode and temperature=0.",
   },
   {
     color: "bg-purple-600",
@@ -147,31 +147,31 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
     color: "bg-violet-600",
     label: "Aggregation",
     description:
-      "After all dispatched agents complete their work in parallel, the aggregate node collects their findings using a LangGraph reducer \u2014 a function that automatically merges results from parallel branches back into a single unified state object. The type annotation 'Annotated[List[AgentFinding], operator.add]' tells LangGraph to concatenate the findings lists from all branches. The aggregate node then computes: overall_score as the arithmetic mean of all individual agent scores (e.g., if 4 agents score 0.9, 0.8, 1.0, 0.7, the overall is 0.85), and overall_passed as the logical AND of all agent pass statuses (meaning every single agent must pass for the overall result to pass \u2014 one failure means the whole validation fails). This single summary is what the LLM Judge and human reviewer both use to make their decisions.",
+      "After all validate_* MCP tools complete, the orchestrator collects their JSON results and computes aggregate scores: overall_score as the arithmetic mean of all individual agent scores, and overall_passed as the logical AND of all agent pass statuses (every agent must pass). These aggregates are computed in the orchestrator's run_orchestrator() function after the agent loop exits, not in a separate graph node.",
   },
   {
     color: "bg-fuchsia-600",
-    label: "LLM Judge (GPT-5-mini)",
+    label: "Claude Judge (Meta-Evaluator)",
     description:
-      "A meta-evaluator that synthesizes all individual agent findings into a single holistic recommendation: 'approve', 'reject', or 'needs_revision'. The judge uses GPT-5-mini (a smaller, faster, and cheaper variant of GPT-5 optimized for structured evaluation tasks where reasoning complexity is lower) in JSON mode. It produces: a recommended decision, a confidence level (high, medium, or low), and a written rationale explaining its reasoning by cross-referencing findings across agents. For example, it might note that while metadata passes, the combination of compliance issues and accuracy concerns warrants rejection. This provides the human reviewer with an AI-generated second opinion that considers the full picture, reducing review time while preserving editorial oversight. The judge never makes the final decision \u2014 a human always does.",
+      "The Claude orchestrator agent itself acts as the judge after all validators complete. In its final response (when it stops requesting tools), it synthesizes all findings into a JSON recommendation: 'approve', 'reject', or 'revise', along with a 0.0-1.0 confidence score, key concerns, strengths, and a written rationale. No separate LLM call is needed \u2014 the judge reasoning happens within the same orchestrator agent loop. The recommendation is extracted from Claude's final text response using regex-based JSON parsing.",
   },
   {
     color: "bg-amber-500",
     label: "Human-in-the-Loop (HITL)",
     description:
-      "HITL means a human must review and approve the AI\u2019s output before it becomes final \u2014 the system never auto-approves or auto-rejects content. The graph suspends execution using LangGraph\u2019s interrupt() primitive (a built-in mechanism that pauses a running graph mid-execution and returns control to the caller). The complete pipeline state (all agent findings, scores, the judge recommendation, scraped content, everything) is checkpointed (serialized and saved) to PostgreSQL via LangGraph\u2019s AsyncPostgresSaver, so it survives server restarts, crashes, or deployments \u2014 a reviewer can come back hours later and the state is still there. An SSE (Server-Sent Events \u2014 a one-way HTTP protocol where the server pushes real-time updates to the browser over a persistent connection, simpler than WebSockets for server-to-client streaming) event of type 'hitl' is pushed to the frontend, which renders the full review panel with all findings, scores, the judge recommendation, and approve/reject buttons. The reviewer can add written feedback before submitting their decision.",
+      "HITL means a human must review and approve the AI\u2019s output before it becomes final \u2014 the system never auto-approves or auto-rejects content. The orchestrator runs to completion, then persists results to PostgreSQL with status = 'awaiting_human'. An SSE (Server-Sent Events) event of type 'hitl' is pushed to the frontend with all findings, scores, and the judge recommendation. The reviewer submits their decision via POST /validate/v2/{id}/decide, which updates the DB row directly \u2014 no suspended graph state or checkpoint resumption needed. This simplified HITL flow is more robust than LangGraph's interrupt()/Command(resume=...) pattern.",
   },
   {
     color: "bg-green-600",
     label: "Approve",
     description:
-      "When the human reviewer clicks 'Approve', the frontend sends a POST request to /validate/{id}/decide with {decision: 'approve', feedback: '...'}. The backend resumes the graph from the saved checkpoint using LangGraph\u2019s Command(resume=...) mechanism. The approve node sets the validation status to 'approved', records the reviewer\u2019s feedback, persists the final state to the PostgreSQL database, and emits an SSE event of type 'done' that includes all final data. The frontend receives this event in real time via its EventSource connection and transitions to the final approved state, displaying a complete score summary across all agents with individual breakdowns, issues, and recommendations.",
+      "When the human reviewer clicks 'Approve', the frontend sends a POST request to /validate/v2/{id}/decide with {decision: 'approve', feedback: '...'}. The backend updates the database row: status = 'approved', feedback recorded. An SSE event of type 'done' is emitted. No graph resumption needed \u2014 it's a simple DB update.",
   },
   {
     color: "bg-red-500",
     label: "Reject",
     description:
-      "When the reviewer clicks 'Reject', the reject node sets the status to 'rejected' and records the reviewer\u2019s written feedback explaining what needs to change. The content is flagged for revision by the editorial team. Like approval, the final state is persisted to PostgreSQL and the browser receives a real-time SSE event closing the validation stream. The rejection feedback is stored alongside all agent findings so the editorial team can see both the AI analysis and the human reviewer\u2019s specific concerns when revising the content.",
+      "When the reviewer clicks 'Reject', the backend updates the DB row: status = 'rejected', feedback recorded, content flagged for editorial revision. An SSE event of type 'done' closes the stream. The rejection feedback is stored alongside all agent findings for the editorial team.",
   },
   {
     color: "bg-rose-500",
@@ -191,6 +191,73 @@ function LegendItem({ color, label, description }: { color: string; label: strin
       <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30 hidden w-96 rounded-xl border border-gray-200 bg-white p-4 shadow-lg group-hover/legend:block">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{label}</p>
         <p className="text-xs leading-relaxed text-gray-700">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── MCP Tool Server section ─────────────────────────────────────────── */
+
+function McpToolServer() {
+  const tools = [
+    { name: "scrape_url", wraps: "tools/web_scraper.py", desc: "Fetch + parse Mayo Clinic URL via curl_cffi (Chrome TLS impersonation)", type: "utility" },
+    { name: "load_rules", wraps: "rules/loader.py", desc: "Load validation rules for a specific agent from Neo4j (fallback: JSON)", type: "utility" },
+    { name: "retrieve_medical_refs", wraps: "tools/rag_retriever.py", desc: "PGVector MMR retrieval of medical reference chunks (k=5, fetch_k=20)", type: "utility" },
+    { name: "validate_metadata", wraps: "agents/metadata_agent.py", desc: "SEO, JSON-LD, Open Graph, canonical URL validation", type: "validator" },
+    { name: "validate_editorial", wraps: "agents/editorial_agent.py", desc: "Heading hierarchy, dates, structure, attribution checks", type: "validator" },
+    { name: "validate_compliance", wraps: "agents/compliance_agent.py", desc: "FDA, HIPAA, disclaimer, prohibited language scanning", type: "validator" },
+    { name: "validate_accuracy", wraps: "agents/accuracy_agent.py", desc: "RAG-based medical fact-checking against knowledge base", type: "validator" },
+    { name: "validate_empty_tags", wraps: "agents/empty_tag_agent.py", desc: "Deterministic empty/malformed HTML tag scanner (HIL only)", type: "validator" },
+  ];
+
+  return (
+    <div className="border border-cyan-200 rounded-xl bg-gradient-to-b from-cyan-50/50 to-white p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-3 h-3 rounded bg-cyan-600" />
+        <h4 className="text-sm font-semibold text-gray-900">MCP Tool Server &mdash; In-Process Tool Execution</h4>
+      </div>
+
+      <div className="text-xs text-gray-600 leading-relaxed">
+        All 8 tools are exposed via <span className="font-semibold text-cyan-700">MCP (Model Context Protocol)</span> using the
+        <span className="font-mono text-cyan-700"> mcp</span> Python SDK. Tools wrap existing validation functions and are called
+        <span className="font-semibold"> in-process</span> (no subprocess/stdio overhead) during orchestration. The MCP server can also
+        run standalone via <span className="font-mono text-cyan-700">stdio_server</span> for external MCP clients.
+        Tool definitions are exported as Anthropic-format schemas for the Claude orchestrator.
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        {tools.map((tool) => (
+          <div key={tool.name} className={`rounded-lg border p-2.5 flex items-start gap-2 ${tool.type === "validator" ? "border-indigo-200 bg-indigo-50/50" : "border-cyan-200 bg-cyan-50/50"}`}>
+            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5 whitespace-nowrap ${tool.type === "validator" ? "bg-indigo-600 text-white" : "bg-cyan-600 text-white"}`}>
+              {tool.type === "validator" ? "VALIDATE" : "UTILITY"}
+            </span>
+            <div>
+              <div className="font-mono font-semibold text-gray-800">{tool.name}</div>
+              <div className="text-gray-500 text-[10px] leading-snug mt-0.5">{tool.desc}</div>
+              <div className="text-gray-400 text-[10px] font-mono mt-0.5">wraps: {tool.wraps}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs space-y-2">
+        <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">How Tool Calls Work</div>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 rounded-lg border border-purple-200 bg-purple-50 p-2.5 space-y-1">
+            <div className="font-semibold text-purple-800 text-[10px]">1. Claude returns tool_use blocks</div>
+            <div className="text-gray-600">The orchestrator agent returns one or more tool_use blocks in a single response. Multiple validate_* calls are batched together.</div>
+          </div>
+          <RightArrow />
+          <div className="flex-1 rounded-lg border border-cyan-200 bg-cyan-50 p-2.5 space-y-1">
+            <div className="font-semibold text-cyan-800 text-[10px]">2. Parallel execution</div>
+            <div className="text-gray-600">All tool calls in a single response execute concurrently via asyncio.gather. Scraped content is injected from cache automatically.</div>
+          </div>
+          <RightArrow />
+          <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50 p-2.5 space-y-1">
+            <div className="font-semibold text-gray-800 text-[10px]">3. Results truncated &amp; returned</div>
+            <div className="text-gray-600">Large results (rules, refs, HTML) are truncated to ~4K chars before being sent back to Claude to stay within context limits.</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -499,64 +566,62 @@ function StateManagement() {
     <div className="border border-amber-200 rounded-xl bg-gradient-to-b from-amber-50/50 to-white p-5 space-y-4">
       <div className="flex items-center gap-2">
         <span className="inline-block w-3 h-3 rounded bg-amber-500" />
-        <h4 className="text-sm font-semibold text-gray-900">LangGraph State Management &amp; Checkpointing</h4>
+        <h4 className="text-sm font-semibold text-gray-900">State Management &amp; Human-in-the-Loop</h4>
       </div>
 
       <div className="text-xs text-gray-600 leading-relaxed">
-        LangGraph (an open-source framework by LangChain for building stateful, multi-step AI workflows as directed graphs)
-        manages the entire validation pipeline as a <span className="font-semibold">state machine</span>. Every node in the graph reads from and writes to
-        a shared <span className="font-mono text-amber-700">ValidationState</span> TypedDict (a Python dictionary with defined types for each key).
-        The state is automatically checkpointed (saved) after every node completes, enabling the pipeline to pause for human review and resume later.
+        The orchestrator agent runs to completion (scrape &rarr; validate &rarr; judge) in a single invocation, then persists the
+        final result to PostgreSQL with <span className="font-mono text-amber-700">status = &lsquo;awaiting_human&rsquo;</span>.
+        No suspended graph state &mdash; the HITL flow is a simple DB state machine. The human reviewer sees all findings via SSE,
+        then submits their decision via <span className="font-mono text-amber-700">POST /validate/v2/{"{id}"}/decide</span> which updates the DB row.
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-xs">
-        {/* State shape */}
+        {/* Result state shape */}
         <div className="rounded-lg border border-gray-200 bg-white p-3">
-          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-2">ValidationState (TypedDict)</div>
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide mb-2">Orchestrator Result State</div>
           <div className="font-mono text-[9px] text-gray-700 bg-gray-50 rounded p-2 space-y-0.5">
-            <div><span className="text-blue-600">url</span>: str <span className="text-gray-400"># Mayo Clinic page URL</span></div>
             <div><span className="text-blue-600">validation_id</span>: str <span className="text-gray-400"># unique ID (UUIDv4)</span></div>
-            <div><span className="text-blue-600">status</span>: str <span className="text-gray-400"># running|hitl|approved|rejected|failed</span></div>
-            <div><span className="text-blue-600">scraped_content</span>: dict <span className="text-gray-400"># title, body, meta, headings, HTML...</span></div>
-            <div><span className="text-blue-600">routing_decision</span>: dict <span className="text-gray-400"># agents_to_run, content_type, reasoning</span></div>
-            <div><span className="text-blue-600">findings</span>: Annotated[List, add] <span className="text-gray-400"># reducer: merge parallel results</span></div>
+            <div><span className="text-blue-600">url</span>: str <span className="text-gray-400"># Mayo Clinic page URL</span></div>
+            <div><span className="text-blue-600">status</span>: str <span className="text-gray-400"># pending|running|awaiting_human|approved|rejected|failed</span></div>
+            <div><span className="text-blue-600">findings</span>: List[AgentFinding] <span className="text-gray-400"># collected from validate_* tool results</span></div>
+            <div><span className="text-blue-600">routing_decision</span>: dict <span className="text-gray-400"># agents_to_run, skipped, method: &lsquo;agentic&rsquo;</span></div>
             <div><span className="text-blue-600">overall_score</span>: float <span className="text-gray-400"># mean of all agent scores</span></div>
             <div><span className="text-blue-600">overall_passed</span>: bool <span className="text-gray-400"># all agents must pass</span></div>
-            <div><span className="text-blue-600">judge_recommendation</span>: dict <span className="text-gray-400"># decision, confidence, rationale</span></div>
-            <div><span className="text-blue-600">human_decision</span>: str <span className="text-gray-400"># approve or reject</span></div>
-            <div><span className="text-blue-600">human_feedback</span>: str <span className="text-gray-400"># reviewer&rsquo;s written notes</span></div>
-            <div><span className="text-blue-600">rules_version</span>: str <span className="text-gray-400"># e.g. &ldquo;1.0.0&rdquo; for audit trail</span></div>
+            <div><span className="text-blue-600">judge_recommendation</span>: dict <span className="text-gray-400"># recommendation, confidence, rationale</span></div>
+            <div><span className="text-blue-600">agent_statuses</span>: dict <span className="text-gray-400"># per-agent completion tracking</span></div>
+            <div><span className="text-blue-600">skipped_agents</span>: list <span className="text-gray-400"># agents the orchestrator chose to skip</span></div>
+            <div><span className="text-blue-600">errors</span>: list <span className="text-gray-400"># any tool execution errors</span></div>
           </div>
         </div>
 
-        {/* Checkpointing */}
+        {/* HITL flow */}
         <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
-          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Checkpointing &amp; Persistence</div>
+          <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Simplified HITL Flow</div>
           <div className="text-gray-600 leading-relaxed">
-            After every node executes, LangGraph serializes the entire state and saves it to PostgreSQL via
-            <span className="font-mono text-amber-700"> AsyncPostgresSaver</span>. This means:
+            Unlike LangGraph&rsquo;s <span className="font-mono text-gray-500">interrupt()</span> + <span className="font-mono text-gray-500">Command(resume=...)</span>,
+            the V2 HITL is a simple database state transition:
           </div>
           <div className="space-y-1.5">
             <div className="flex items-start gap-2">
-              <span className="bg-green-100 text-green-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">SURVIVE</span>
-              <span className="text-gray-600">Server restarts &mdash; state persists in PostgreSQL</span>
+              <span className="bg-purple-100 text-purple-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">STEP 1</span>
+              <span className="text-gray-600">Orchestrator runs to completion &mdash; all findings computed</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="bg-green-100 text-green-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">SURVIVE</span>
-              <span className="text-gray-600">Deployments &mdash; pending reviews survive code updates</span>
+              <span className="bg-purple-100 text-purple-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">STEP 2</span>
+              <span className="text-gray-600">Results persisted to PostgreSQL &middot; status = &lsquo;awaiting_human&rsquo;</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="bg-green-100 text-green-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">SURVIVE</span>
-              <span className="text-gray-600">Crashes &mdash; resume from last completed node</span>
+              <span className="bg-amber-100 text-amber-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">STEP 3</span>
+              <span className="text-gray-600">SSE {"{type: 'hitl'}"} streams all findings to browser</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="bg-blue-100 text-blue-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">FEATURE</span>
-              <span className="text-gray-600">Time travel &mdash; replay any past state for debugging</span>
+              <span className="bg-green-100 text-green-700 text-[8px] font-bold px-1.5 py-0.5 rounded mt-0.5">STEP 4</span>
+              <span className="text-gray-600">Human submits decision &rarr; DB update &rarr; SSE {"{type: 'done'}"}</span>
             </div>
           </div>
-          <div className="text-gray-600 leading-relaxed">
-            Each checkpoint is keyed by <span className="font-mono text-gray-700">thread_id</span> (the validation ID) and <span className="font-mono text-gray-700">checkpoint_ns</span> (the node name),
-            creating a complete execution history.
+          <div className="text-gray-500 text-[10px] leading-relaxed mt-1">
+            No graph checkpoint serialization needed. State survives restarts because it&rsquo;s just a database row.
           </div>
         </div>
       </div>
@@ -583,8 +648,8 @@ function TechStack() {
       color: "bg-indigo-100 border-indigo-200",
       items: [
         { name: "FastAPI", desc: "High-performance async Python web framework with auto-generated OpenAPI docs" },
-        { name: "LangGraph", desc: "Framework for building stateful, multi-step AI workflows as directed graphs" },
-        { name: "LangChain", desc: "Toolkit for LLM application development (prompts, chains, document loaders)" },
+        { name: "MCP (Model Context Protocol)", desc: "Tool protocol for exposing validation capabilities as composable, reusable tools" },
+        { name: "Claude Orchestrator", desc: "Anthropic SDK tool-use loop that dynamically decides which validators to run" },
         { name: "SSE-Starlette", desc: "Server-Sent Events plugin for FastAPI enabling real-time streaming" },
       ],
     },
@@ -592,8 +657,8 @@ function TechStack() {
       title: "AI / LLM",
       color: "bg-purple-100 border-purple-200",
       items: [
-        { name: "GPT-5.1", desc: "OpenAI's flagship model used by 4 validation agents (temp=0, JSON mode)" },
-        { name: "GPT-5-mini", desc: "Smaller, faster OpenAI model used by the Judge agent" },
+        { name: "Claude Sonnet", desc: "Anthropic model powering the orchestrator agent (tool-use, reasoning, judge)" },
+        { name: "GPT-5.1", desc: "OpenAI model used by 4 validation agents internally (temp=0, JSON mode)" },
         { name: "text-embedding-3-small", desc: "OpenAI embedding model (1,536 dims) for RAG vector search" },
       ],
     },
@@ -883,38 +948,78 @@ export function PipelineDiagram() {
   return (
     <div className="space-y-6 text-xs">
       {/* Section: Pipeline Flow */}
-      <SectionTitle>Pipeline Flow &mdash; From URL Input to Human Decision</SectionTitle>
+      <SectionTitle>Pipeline Flow &mdash; MCP + Claude Orchestrator Agent</SectionTitle>
 
-      {/* Row 1 — input + triage */}
-      <div className="flex flex-col items-center gap-1">
-        <Node label="URL Input" sublabel="User submits a Mayo Clinic page URL via the frontend form" color="blue" />
-        <Arrow label="httpx.AsyncClient.get(url)" />
-        <Node
-          label="Scrape Content"
-          sublabel="httpx (async HTTP/2 client) fetches the page · BeautifulSoup4 (HTML parser) extracts: title, meta description, JSON-LD structured data, heading hierarchy (H1-H4), body text, Open Graph tags (og:title, og:description, og:type), canonical URL, internal/external links, and raw HTML source"
-          color="blue"
-          wide
-        />
-        <Arrow label="scraped_content → state" />
-        <Node
-          label="Content Triage (Deterministic Router)"
-          sublabel="Inspects URL path · '/healthy-lifestyle/' → HIL content (5 agents) · all other URLs → standard content (4 agents) · No LLM call — pure string matching, zero cost · Records rules_version for audit trail"
-          color="sky"
-          wide
-        />
-        <Arrow />
-        <div className="text-gray-400 font-medium text-[11px] text-center max-w-xl leading-relaxed">
-          <span className="font-mono text-sky-600">dispatch_agents()</span> &mdash; LangGraph Send API (parallel fan-out: sends scraped content to all selected agents simultaneously)<br />
-          <span className="text-sky-500">Standard pages &rarr; 4 LLM agents</span> &middot; <span className="text-sky-500">HIL pages (healthy-lifestyle) &rarr; 5 agents (+ Empty Tag Check)</span>
+      {/* Architecture overview banner */}
+      <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 p-4 text-xs text-gray-700 leading-relaxed">
+        <div className="font-semibold text-indigo-800 text-[11px] uppercase tracking-wide mb-1.5">V2 Architecture: Agentic MCP Pipeline</div>
+        The orchestrator is a <span className="font-semibold text-indigo-700">Claude Sonnet tool-use loop</span> that dynamically reasons about
+        which validation tools to call, in what order, and how to interpret results. Tools are exposed via
+        <span className="font-semibold text-purple-700"> MCP (Model Context Protocol)</span> &mdash; making them composable and
+        independently callable. Unlike the previous fixed LangGraph state machine, the agent can skip irrelevant validators,
+        re-run checks, and adjust strategy based on content type.
+      </div>
+
+      {/* Row 1 — 3-layer architecture */}
+      <div className="flex items-center justify-center gap-4">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center w-44">
+          <div className="font-semibold text-blue-800">Browser (Next.js)</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">SSE event stream</div>
+        </div>
+        <div className="text-gray-400 font-mono text-[10px]">&larr; SSE &rarr;</div>
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-center w-44">
+          <div className="font-semibold text-indigo-800">FastAPI Bridge</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">Thin HTTP/SSE layer</div>
+        </div>
+        <div className="text-gray-400 font-mono text-[10px]">&larr; calls &rarr;</div>
+        <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 text-center w-44">
+          <div className="font-semibold text-purple-800">Claude Orchestrator</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">Anthropic tool-use loop</div>
+        </div>
+        <div className="text-gray-400 font-mono text-[10px]">&larr; MCP &rarr;</div>
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-center w-44">
+          <div className="font-semibold text-cyan-800">MCP Tool Server</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">8 composable tools</div>
         </div>
       </div>
 
-      {/* Row 2 — 5 agents (4 standard + conditional empty tag) */}
+      {/* Row 2 — orchestrator flow */}
+      <div className="flex flex-col items-center gap-1">
+        <Node label="URL Input" sublabel="User submits a Mayo Clinic page URL via the frontend form" color="blue" />
+        <Arrow label="POST /api/validate/v2" />
+        <Node
+          label="Claude Orchestrator Agent"
+          sublabel="Claude Sonnet (Anthropic SDK) &middot; Receives URL &middot; Dynamically decides which MCP tools to call &middot; Reasons about content type, validator relevance, and execution order &middot; Can batch multiple tool calls per turn for parallel execution &middot; Up to 20 iterations (safety cap)"
+          color="purple"
+          wide
+        />
+        <Arrow label="tool_use: scrape_url" />
+        <Node
+          label="MCP: scrape_url"
+          sublabel="curl_cffi (Chrome TLS impersonation) fetches the page &middot; BeautifulSoup4 extracts: title, meta description, JSON-LD, heading hierarchy (H1-H4), body text, OG tags, canonical URL, links, raw HTML &middot; Result cached for subsequent tool calls"
+          color="cyan"
+          wide
+        />
+        <Arrow label="Agent analyzes content → decides validators" />
+        <Node
+          label="Dynamic Tool Selection"
+          sublabel="Claude examines scraped content and URL path &middot; Decides which validators are relevant (e.g. skips empty_tag for non-HIL pages) &middot; Batches load_rules + retrieve_medical_refs calls in parallel &middot; No fixed routing — agent reasons about what to run"
+          color="sky"
+          wide
+        />
+        <Arrow label="Batched: load_rules × N + retrieve_medical_refs" />
+        <div className="text-gray-400 font-medium text-[11px] text-center max-w-xl leading-relaxed">
+          <span className="font-mono text-purple-600">Claude batches all validate_* tool calls in a single response</span> &mdash; MCP tools execute in parallel via asyncio.gather<br />
+          <span className="text-purple-500">Agent dynamically selects which validators to run based on content analysis</span>
+        </div>
+      </div>
+
+      {/* Row 3 — 5 MCP validator tools */}
       <div className="grid grid-cols-5 gap-3">
         <AgentColumn
           label="Metadata Agent"
           color="indigo"
-          description="Validates SEO (Search Engine Optimization) and structured data completeness. Ensures search engines and social platforms can properly index and display the page."
+          description="MCP tool: validate_metadata. Validates SEO and structured data completeness. Ensures search engines and social platforms can properly index and display the page."
           rules={[
             { text: "Meta description present (150-160 chars)", severity: "critical" },
             { text: "Canonical URL present and matching", severity: "critical" },
@@ -922,12 +1027,12 @@ export function PipelineDiagram() {
             { text: "Open Graph tags (og:title, og:description)", severity: "major" },
             { text: "og:type set to website or article", severity: "minor" },
           ]}
-          threshold="≥ 0.7 (70%)"
+          threshold="&ge; 0.7 (70%)"
         />
         <AgentColumn
           label="Editorial Agent"
           color="indigo"
-          description="Checks content structure, recency, and attribution standards. Ensures the page follows Mayo Clinic's editorial guidelines for health content."
+          description="MCP tool: validate_editorial. Checks content structure, recency, and attribution standards per Mayo Clinic editorial guidelines."
           rules={[
             { text: "H1 heading present and descriptive", severity: "critical" },
             { text: "No heading level skips (H2→H4 invalid)", severity: "major" },
@@ -936,12 +1041,12 @@ export function PipelineDiagram() {
             { text: "≥3 required sections (Overview, Symptoms...)", severity: "major" },
             { text: "≥500 words for adequate depth", severity: "minor" },
           ]}
-          threshold="≥ 0.7 (70%)"
+          threshold="&ge; 0.7 (70%)"
         />
         <AgentColumn
           label="Compliance Agent"
           color="indigo"
-          description="Scans for regulatory violations and dangerous medical claims. Catches language that could mislead patients or violate FDA/HIPAA guidelines."
+          description="MCP tool: validate_compliance. Scans for regulatory violations and dangerous medical claims. Catches FDA/HIPAA guideline violations."
           rules={[
             { text: "No absolute cure claims ('cures', 'eliminates')", severity: "critical" },
             { text: "No unsubstantiated superlatives", severity: "critical" },
@@ -951,21 +1056,25 @@ export function PipelineDiagram() {
             { text: "Appropriate hedging language ('may help')", severity: "minor" },
             { text: "FDA language compliance", severity: "major" },
           ]}
-          threshold="≥ 0.75 (75%)"
+          threshold="&ge; 0.75 (75%)"
         />
         <RagAgentColumn />
         <AgentColumn
           label="Empty Tag Check"
           color="sky"
-          description="Deterministic (no LLM) scanner for malformed HTML. Runs ONLY on HIL content. Checks raw HTML before parser cleanup."
+          description="MCP tool: validate_empty_tags. Deterministic (no LLM) scanner for malformed HTML. Agent only calls this for HIL content (healthy-lifestyle URLs)."
           rules={[
             { text: "No self-closing content tags (<title/>)", severity: "major" },
             { text: "No empty/whitespace-only tags", severity: "major" },
             { text: "Checks: title, h1-h4, p, a, li, td, th, label, button", severity: "info" },
           ]}
-          threshold="≥ 0.8 (80%)"
+          threshold="&ge; 0.8 (80%)"
         />
       </div>
+
+      {/* Section: MCP Tool Server */}
+      <SectionTitle color="cyan">MCP Tool Server &mdash; 8 Composable Tools via Model Context Protocol</SectionTitle>
+      <McpToolServer />
 
       {/* Section: Rules Engine */}
       <SectionTitle color="cyan">Rules Engine &mdash; Dynamic Rule Loading from Neo4j Graph Database</SectionTitle>
@@ -975,59 +1084,50 @@ export function PipelineDiagram() {
       <SectionTitle color="purple">RAG Architecture &mdash; Evidence-Based Medical Fact-Checking</SectionTitle>
       <RagArchitecture />
 
-      {/* Reducer note */}
+      {/* Orchestrator synthesis */}
       <div className="flex flex-col items-center gap-1">
         <div className="text-gray-400 font-mono text-[10px] text-center leading-relaxed">
-          findings: Annotated[List[AgentFinding], operator.add]<br />
-          <span className="text-gray-500">LangGraph reducer automatically merges findings from all parallel agent branches into a single list</span>
+          All validate_* results collected by orchestrator<br />
+          <span className="text-gray-500">Claude synthesizes findings, computes scores, and generates judge recommendation in a single final response</span>
         </div>
         <Arrow />
 
-        {/* Row 3 — aggregate */}
+        {/* Row — judge */}
         <Node
-          label="Aggregate Node"
-          sublabel="overall_score = arithmetic mean of all agent scores · overall_passed = logical AND of all pass statuses (every agent must pass) · Collects per-agent breakdowns for review panel"
-          color="violet"
-          wide
-        />
-        <Arrow label="findings + overall_score → judge" />
-
-        {/* Row 3.5 — LLM Judge */}
-        <Node
-          label="LLM Judge (Meta-Evaluator)"
-          sublabel="GPT-5-mini (smaller, faster model) · JSON mode · Reads ALL agent findings and cross-references them · Produces: decision (approve/reject/needs_revision), confidence (high/medium/low), written rationale · Provides AI second opinion — never makes the final call"
+          label="Claude Judge (Meta-Evaluator)"
+          sublabel="The orchestrator agent itself acts as the judge &middot; Reads ALL validator findings and cross-references them &middot; Produces JSON: recommendation (approve/reject/revise), confidence (0.0-1.0), key_concerns, strengths, written rationale &middot; No separate LLM call — synthesized in the same agent loop"
           color="fuchsia"
           wide
         />
-        <Arrow label="judge_recommendation → human gate" />
+        <Arrow label="judge_recommendation → HITL" />
 
-        {/* Row 4 — human gate */}
+        {/* Row — human gate */}
         <Node
           label="Human Review Gate (HITL — Human-in-the-Loop)"
-          sublabel="LangGraph interrupt() pauses the graph · Full state checkpointed to PostgreSQL via AsyncPostgresSaver (survives restarts) · SSE event {type:'hitl'} pushed to browser · Frontend renders review panel with all findings, scores, judge recommendation, and approve/reject buttons"
+          sublabel="Orchestrator runs to completion &middot; Results persisted to PostgreSQL &middot; status = 'awaiting_human' &middot; SSE event {type:'hitl'} pushed to browser &middot; Frontend renders review panel with all findings, scores, judge recommendation, and approve/reject buttons"
           color="amber"
           wide
         />
       </div>
 
-      {/* Row 5 — approve / reject */}
+      {/* Row — approve / reject */}
       <div className="flex items-start justify-center gap-12">
         <div className="flex flex-col items-center gap-1">
-          <div className="text-gray-400 text-[11px] font-mono">POST /validate/{"{id}"}/decide</div>
+          <div className="text-gray-400 text-[11px] font-mono">POST /validate/v2/{"{id}"}/decide</div>
           <div className="text-gray-400 text-[10px]">{"{decision: 'approve', feedback: '...'}"}</div>
           <Arrow />
-          <Node label="Approve Node" sublabel="status = 'approved' · feedback recorded · persisted to PostgreSQL · SSE {type:'done'} sent" color="green" />
+          <Node label="Approve" sublabel="status = 'approved' &middot; feedback recorded &middot; persisted to PostgreSQL &middot; SSE {type:'done'} sent" color="green" />
         </div>
         <div className="flex flex-col items-center gap-1">
-          <div className="text-gray-400 text-[11px] font-mono">POST /validate/{"{id}"}/decide</div>
+          <div className="text-gray-400 text-[11px] font-mono">POST /validate/v2/{"{id}"}/decide</div>
           <div className="text-gray-400 text-[10px]">{"{decision: 'reject', feedback: '...'}"}</div>
           <Arrow />
-          <Node label="Reject Node" sublabel="status = 'rejected' · feedback recorded · flagged for editorial revision · SSE {type:'done'} sent" color="red" />
+          <Node label="Reject" sublabel="status = 'rejected' &middot; feedback recorded &middot; flagged for editorial revision &middot; SSE {type:'done'} sent" color="red" />
         </div>
       </div>
 
       {/* Section: State Management */}
-      <SectionTitle color="amber">State Management &amp; Checkpointing</SectionTitle>
+      <SectionTitle color="amber">State Management &amp; HITL</SectionTitle>
       <StateManagement />
 
       {/* Section: RAGAS Evaluation */}

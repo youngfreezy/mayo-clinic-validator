@@ -166,7 +166,7 @@ def _initial_state(vid: str, url: str, requested_by: str) -> Dict[str, Any]:
 # Background tasks
 # ---------------------------------------------------------------------------
 
-PIPELINE_TIMEOUT = 300.0  # 5 minutes
+PIPELINE_TIMEOUT = 600.0  # 10 minutes (v2 orchestrator makes multiple LLM calls)
 RESUME_TIMEOUT = 60.0    # 1 minute (resume only runs approve/reject nodes)
 
 

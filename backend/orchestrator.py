@@ -47,9 +47,16 @@ tools in the right order.
    - Which validators are relevant for this content type
 3. **Load rules** using `load_rules` for each validator you plan to run.
 4. **For accuracy checks**: also call `retrieve_medical_refs` to get reference material.
-5. **Run validators**: Call the appropriate `validate_*` tools. You can call multiple
-   validators in a single response to run them in parallel.
+5. **Run validators**: Call ALL appropriate `validate_*` tools IN A SINGLE RESPONSE
+   so they execute in parallel. This is critical for performance — do NOT call them
+   one at a time. Return all validate_* tool calls together.
 6. **Synthesize**: After all validators complete, provide your final judge recommendation.
+
+IMPORTANT: You MUST batch tool calls for efficiency:
+- Call ALL `load_rules` tools in one response (not one at a time)
+- Call ALL `validate_*` tools in one response (not one at a time)
+- Call `retrieve_medical_refs` together with `load_rules` calls
+- Minimize the number of conversational turns
 
 ## Decision guidelines
 
@@ -72,7 +79,15 @@ After all validations complete, respond with your final assessment as a JSON blo
 }
 ```
 
-Be thorough but efficient. Skip tools that won't add value for the specific content."""
+Be thorough but efficient. Skip tools that won't add value for the specific content.
+
+## Tool input tips
+
+When calling `validate_*` tools, you do NOT need to pass the full scraped_content.
+Just pass `{"scraped_content": "cached"}` — the system will inject the full content
+automatically from cache. Same for `raw_html` in `validate_empty_tags` — pass
+`{"raw_html": "cached"}`. This saves tokens and allows you to batch all validate
+calls in a single response."""
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +137,63 @@ async def _execute_tool_call(
             pass
 
     return result
+
+
+MAX_TOOL_RESULT_CHARS = 4000
+
+
+def _truncate_tool_result(tool_name: str, result_str: str) -> str:
+    """Truncate tool results to keep conversation context within token limits.
+
+    Large results from load_rules, retrieve_medical_refs, and scrape_url
+    can accumulate to 200k+ tokens across multiple turns. We cap each
+    result and provide a summary so the orchestrator can still reason.
+    """
+    if len(result_str) <= MAX_TOOL_RESULT_CHARS:
+        return result_str
+
+    # For validate_* tools, keep full result (they're structured JSON, usually small)
+    if tool_name.startswith("validate_"):
+        return result_str
+
+    # Try to parse as JSON for smarter truncation
+    try:
+        data = json.loads(result_str)
+    except (json.JSONDecodeError, ValueError):
+        return result_str[:MAX_TOOL_RESULT_CHARS] + "\n... [truncated]"
+
+    if tool_name == "scrape_url":
+        # Keep structure but truncate body_text
+        if isinstance(data, dict) and "body_text" in data:
+            data["body_text"] = data["body_text"][:2000] + "... [truncated]"
+            if "raw_html" in data:
+                data.pop("raw_html")  # Never send raw HTML to agent
+            return json.dumps(data)
+
+    if tool_name == "load_rules":
+        # Keep rules_block but truncate if huge
+        if isinstance(data, dict) and "rules_block" in data:
+            rb = data["rules_block"]
+            if len(rb) > 2000:
+                data["rules_block"] = rb[:2000] + "\n... [truncated — full rules loaded]"
+            return json.dumps(data)
+
+    if tool_name == "retrieve_medical_refs":
+        # Truncate reference text
+        if isinstance(data, dict) and "references" in data:
+            refs = data["references"]
+            if isinstance(refs, str) and len(refs) > 2000:
+                data["references"] = refs[:2000] + "\n... [truncated — full refs available]"
+            elif isinstance(refs, list):
+                # Keep first 3 refs, truncate each
+                data["references"] = [
+                    r[:500] + "..." if isinstance(r, str) and len(r) > 500 else r
+                    for r in refs[:3]
+                ]
+            return json.dumps(data)
+
+    # Generic fallback
+    return result_str[:MAX_TOOL_RESULT_CHARS] + "\n... [truncated]"
 
 
 async def run_orchestrator(
@@ -184,7 +256,7 @@ async def run_orchestrator(
         for iteration in range(20):  # Safety cap
             response = await client.messages.create(
                 model=ORCHESTRATOR_MODEL,
-                max_tokens=4096,
+                max_tokens=16384,
                 system=SYSTEM_PROMPT,
                 tools=TOOL_DEFINITIONS,
                 messages=messages,
@@ -194,6 +266,13 @@ async def run_orchestrator(
             assistant_content = response.content
             tool_calls = [b for b in assistant_content if b.type == "tool_use"]
             text_blocks = [b for b in assistant_content if b.type == "text"]
+
+            logger.info(
+                "Orchestrator iteration %d: %d tool calls, stop=%s",
+                iteration, len(tool_calls), response.stop_reason,
+            )
+            if tool_calls:
+                logger.info("Tool calls: %s", [tc.name for tc in tool_calls])
 
             # Add assistant response to conversation
             messages.append({"role": "assistant", "content": assistant_content})
@@ -263,10 +342,12 @@ async def run_orchestrator(
             # Build tool result messages and emit SSE events
             tool_result_contents = []
             for tc, result_str in tool_results:
+                # Truncate large tool results to avoid blowing up context
+                truncated = _truncate_tool_result(tc.name, result_str)
                 tool_result_contents.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,
-                    "content": result_str,
+                    "content": truncated,
                 })
 
                 # Emit agent_complete for validate_* tools

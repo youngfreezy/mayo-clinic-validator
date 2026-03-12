@@ -5,7 +5,7 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 export const metadata = {
   title: "Pipeline Architecture — Mayo Clinic Content Validator",
   description:
-    "Multi-agent LangGraph validation pipeline architecture: Triage, Metadata, Editorial, Compliance, Accuracy (RAG), Empty Tag Check, LLM Judge, and Human-in-the-Loop review.",
+    "MCP + Claude orchestrator agent pipeline: dynamic tool selection, parallel validation via 8 MCP tools, RAG fact-checking, and human-in-the-loop review.",
 };
 
 export default function PipelinePage() {
@@ -34,7 +34,7 @@ export default function PipelinePage() {
               Pipeline Architecture
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              LangGraph validation pipeline with parallel agent dispatch, LLM judge, and human-in-the-loop review
+              MCP + Claude orchestrator agent with dynamic tool selection, parallel validation, and human-in-the-loop review
             </p>
           </div>
           <CopyLinkButton />
