@@ -587,3 +587,25 @@ async def get_analytics(days: int = 30) -> Dict[str, Any]:
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok", "service": "mayo-clinic-validator"}
+
+
+@app.get("/api/debug/scrape")
+async def debug_scrape(url: str = "https://www.mayoclinic.org/diseases-conditions/diabetes/symptoms-causes/syc-20371444") -> Dict[str, Any]:
+    """Debug endpoint: test scraping a URL and return result or error details."""
+    import traceback
+    try:
+        from tools.web_scraper import scrape_mayo_url
+        result = await scrape_mayo_url(url)
+        return {
+            "status": "ok",
+            "title": result.get("title", ""),
+            "body_length": len(result.get("body_text", "")),
+            "headings_count": len(result.get("headings", [])),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc(),
+        }
