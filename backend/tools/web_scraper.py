@@ -1,26 +1,24 @@
 """
-Mayo Clinic URL scraper using httpx + BeautifulSoup.
+Mayo Clinic URL scraper using curl_cffi (Chrome TLS impersonation) + BeautifulSoup.
 
-Mayo Clinic serves server-side rendered HTML, so httpx is sufficient.
-A real browser User-Agent is required — without it you get a 403 or JS-only shell.
+curl_cffi impersonates Chrome's exact TLS fingerprint, bypassing bot detection
+that blocks standard Python HTTP clients (httpx/requests) on cloud IPs.
+Falls back to Google Cache if direct fetch still gets blocked.
 """
 
 import json
+import logging
 import re
 from typing import Dict, Any, List, Optional
+from urllib.parse import quote_plus
 
-import httpx
 from bs4 import BeautifulSoup
 
+logger = logging.getLogger(__name__)
+
 MAYO_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/121.0.0.0 Safari/537.36"
-    ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
 }
@@ -33,24 +31,78 @@ DATE_PATTERN = re.compile(
 )
 
 
+async def _fetch_with_curl_cffi(url: str) -> str:
+    """Fetch URL using curl_cffi with Chrome browser impersonation."""
+    from curl_cffi.requests import AsyncSession
+
+    async with AsyncSession() as session:
+        response = await session.get(
+            url,
+            impersonate="chrome",
+            headers=MAYO_HEADERS,
+            timeout=30,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+        return response.text
+
+
+async def _fetch_with_google_cache(url: str) -> str:
+    """Fetch Google's cached version of the URL as a fallback."""
+    import httpx
+
+    cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{quote_plus(url)}"
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=30.0,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/121.0.0.0 Safari/537.36"
+            ),
+            **MAYO_HEADERS,
+        },
+    ) as client:
+        response = await client.get(cache_url)
+        response.raise_for_status()
+        return response.text
+
+
 async def scrape_mayo_url(url: str) -> Dict[str, Any]:
     """
     Fetch and parse a Mayo Clinic content page.
 
+    Strategy:
+    1. Try curl_cffi with Chrome TLS impersonation (bypasses fingerprint detection).
+    2. Fall back to Google Cache if direct fetch is blocked (403/503).
+
     Returns a dict with: title, meta_description, body_text, structured_data,
     last_reviewed, headings, canonical_url, og_tags, internal_links, external_links.
-
-    Raises httpx.HTTPStatusError on non-2xx responses.
     """
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=30.0,
-        headers=MAYO_HEADERS,
-    ) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+    raw_html = None
 
-    raw_html = response.text
+    # Strategy 1: curl_cffi with Chrome impersonation
+    try:
+        raw_html = await _fetch_with_curl_cffi(url)
+        logger.info("Successfully fetched %s via curl_cffi", url)
+    except Exception as e:
+        logger.warning("curl_cffi failed for %s: %s — trying Google Cache", url, e)
+
+    # Strategy 2: Google Cache fallback
+    if raw_html is None:
+        try:
+            raw_html = await _fetch_with_google_cache(url)
+            logger.info("Successfully fetched %s via Google Cache", url)
+        except Exception as e:
+            logger.warning("Google Cache failed for %s: %s", url, e)
+
+    if raw_html is None:
+        raise RuntimeError(
+            f"All fetch strategies failed for '{url}'. "
+            "Mayo Clinic may be blocking requests from this server's IP."
+        )
+
     soup = BeautifulSoup(raw_html, "lxml")
 
     return {

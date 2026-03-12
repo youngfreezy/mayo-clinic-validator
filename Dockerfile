@@ -11,9 +11,9 @@ RUN npm run build
 # ── Stage 2: Final runtime image ─────────────────────────────────────────────
 FROM python:3.11-slim
 
-# Install Node 20, nginx, supervisord
+# Install Node 20, nginx, supervisord, libcurl (for curl_cffi TLS impersonation)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl gnupg nginx supervisor && \
+        curl gnupg nginx supervisor libcurl4-openssl-dev && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
