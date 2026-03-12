@@ -5,6 +5,7 @@ from typing import List, Optional
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
 
     # Standard Postgres URL (e.g. Neon: postgresql://user:pass@host/db?sslmode=require)
     # If set, takes precedence over PGVECTOR_CONNECTION_STRING.

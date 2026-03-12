@@ -48,6 +48,7 @@ from sse_starlette.sse import EventSourceResponse
 from config.settings import settings
 from models.schemas import ValidateRequest, HumanDecisionRequest
 from pipeline.graph import build_graph
+from orchestrator import run_orchestrator
 import db
 
 
@@ -519,6 +520,98 @@ async def human_decision(
     )
 
     return {"status": "resuming", "validation_id": vid}
+
+
+# ---------------------------------------------------------------------------
+# V2 Agentic endpoints (MCP + Claude orchestrator)
+# ---------------------------------------------------------------------------
+
+async def _run_orchestrator_task(vid: str, url: str, requested_by: str, q: asyncio.Queue) -> None:
+    """Background task: run the Claude orchestrator agent and persist results."""
+    try:
+        result = await asyncio.wait_for(
+            run_orchestrator(
+                url=url,
+                validation_id=vid,
+                requested_by=requested_by,
+                q=q,
+            ),
+            timeout=PIPELINE_TIMEOUT,
+        )
+        validation_store[vid] = result
+        await db.upsert_validation(result)
+    except asyncio.TimeoutError:
+        error_state = validation_store.get(vid, {})
+        error_state["status"] = "failed"
+        error_state.setdefault("errors", []).append("Orchestrator timed out after 5 minutes")
+        validation_store[vid] = error_state
+        await db.upsert_validation(error_state)
+        await q.put({"type": "error", "data": {"message": "Orchestrator timed out after 5 minutes"}})
+        await q.put({"type": "done", "data": {"status": "failed"}})
+    except Exception as e:
+        error_state = validation_store.get(vid, {})
+        error_state["status"] = "failed"
+        validation_store[vid] = error_state
+        await db.upsert_validation(error_state)
+        await q.put({"type": "error", "data": {"message": str(e)}})
+        await q.put({"type": "done", "data": {"status": "failed"}})
+
+
+@app.post("/api/validate/v2")
+async def start_validation_v2(
+    req: ValidateRequest, background_tasks: BackgroundTasks
+) -> Dict[str, str]:
+    """Submit a Mayo Clinic URL for validation using the agentic MCP orchestrator."""
+    vid = str(uuid.uuid4())
+    q: asyncio.Queue = asyncio.Queue()
+    sse_queues[vid] = q
+
+    state = _initial_state(vid, req.url, req.requested_by or "web-user")
+    validation_store[vid] = state
+    await db.upsert_validation(state)
+
+    background_tasks.add_task(
+        _run_orchestrator_task, vid, req.url, req.requested_by or "web-user", q
+    )
+
+    return {"validation_id": vid, "engine": "mcp-orchestrator"}
+
+
+@app.post("/api/validate/v2/{vid}/decide")
+async def human_decision_v2(
+    vid: str, req: HumanDecisionRequest
+) -> Dict[str, str]:
+    """
+    Handle HITL decision for v2 orchestrator validations.
+    Simpler than v1 — no graph resume needed, just update DB state.
+    """
+    state = validation_store.get(vid) or await db.get_validation(vid)
+    if not state:
+        raise HTTPException(status_code=404, detail="Validation not found")
+
+    current_status = state.get("status")
+    if current_status != "awaiting_human":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot submit decision: current status is '{current_status}'",
+        )
+
+    # Update state with human decision
+    final_status = "approved" if req.decision == "approve" else "rejected"
+    if isinstance(state, dict):
+        state["status"] = final_status
+        state["human_decision"] = req.decision
+        state["human_feedback"] = req.feedback or ""
+        state["reviewed_by"] = req.reviewer_id or "web-user"
+    validation_store[vid] = state
+    await db.upsert_validation(state)
+
+    # Emit done event if SSE queue exists
+    if vid in sse_queues:
+        q = sse_queues[vid]
+        await q.put({"type": "done", "data": {"status": final_status}})
+
+    return {"status": final_status, "validation_id": vid}
 
 
 @app.get("/api/validations")

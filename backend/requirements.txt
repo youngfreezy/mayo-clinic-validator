@@ -40,5 +40,11 @@ itsdangerous>=2.1.0
 ragas>=0.2.0
 datasets>=2.18.0
 
+# Anthropic (Claude API for orchestrator agent)
+anthropic>=0.40.0
+
+# MCP (Model Context Protocol for tool exposure)
+mcp>=1.0.0
+
 # Typing
 typing-extensions>=4.12.0
