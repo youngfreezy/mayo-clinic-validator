@@ -609,3 +609,35 @@ async def debug_scrape(url: str = "https://www.mayoclinic.org/diseases-condition
             "error_message": str(e),
             "traceback": traceback.format_exc(),
         }
+
+
+@app.get("/api/debug/rules")
+async def debug_rules() -> Dict[str, Any]:
+    """Debug endpoint: check Neo4j connectivity and rules loading."""
+    import traceback
+    from config.settings import settings
+    result: Dict[str, Any] = {
+        "neo4j_configured": bool(settings.NEO4J_URI and settings.NEO4J_USER and settings.NEO4J_PASSWORD),
+        "neo4j_uri": settings.NEO4J_URI[:30] + "..." if settings.NEO4J_URI else "(empty)",
+    }
+
+    # Test Neo4j connection
+    if result["neo4j_configured"]:
+        try:
+            from rules.graph_store import verify_connection
+            await verify_connection(settings.NEO4J_URI, settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+            result["neo4j_status"] = "connected"
+        except Exception as e:
+            result["neo4j_status"] = f"failed: {type(e).__name__}: {e}"
+            result["neo4j_traceback"] = traceback.format_exc()
+
+    # Test rules loading
+    try:
+        from rules.loader import get_rules_for_agent
+        rule_set = await get_rules_for_agent("metadata", "conditions-diseases")
+        result["rules_source"] = rule_set.source if rule_set else "none"
+        result["rules_count"] = len(rule_set.rules) if rule_set else 0
+    except Exception as e:
+        result["rules_error"] = f"{type(e).__name__}: {e}"
+
+    return result
