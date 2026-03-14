@@ -123,7 +123,7 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
     color: "bg-sky-500",
     label: "Dynamic Tool Selection",
     description:
-      "Instead of a fixed deterministic router, the Claude orchestrator agent analyzes the scraped content and URL path to dynamically decide which validators to run. For '/healthy-lifestyle/' URLs, it includes the Empty Tag Check tool. For standard medical content, it skips it. The agent can also skip validators when input data is missing or re-run a check if results seem unreliable. This replaces the previous fixed LangGraph triage node with AI reasoning about content type and validator relevance.",
+      "V2: Instead of V1's fixed deterministic router, the Claude orchestrator agent analyzes the scraped content and URL path to dynamically decide which validators to run. For '/healthy-lifestyle/' URLs, it includes the Empty Tag Check tool. For standard medical content, it skips it. The agent can also skip validators when input data is missing or re-run a check if results seem unreliable — AI reasoning replaces hardcoded if/else routing.",
   },
   {
     color: "bg-cyan-600",
@@ -159,7 +159,7 @@ const LEGEND_ITEMS: { color: string; label: string; description: string }[] = [
     color: "bg-amber-500",
     label: "Human-in-the-Loop (HITL)",
     description:
-      "HITL means a human must review and approve the AI\u2019s output before it becomes final \u2014 the system never auto-approves or auto-rejects content. The orchestrator runs to completion, then persists results to PostgreSQL with status = 'awaiting_human'. An SSE (Server-Sent Events) event of type 'hitl' is pushed to the frontend with all findings, scores, and the judge recommendation. The reviewer submits their decision via POST /validate/v2/{id}/decide, which updates the DB row directly \u2014 no suspended graph state or checkpoint resumption needed. This simplified HITL flow is more robust than LangGraph's interrupt()/Command(resume=...) pattern.",
+      "HITL means a human must review and approve the AI\u2019s output before it becomes final \u2014 the system never auto-approves or auto-rejects content. V2: The orchestrator runs to completion, then persists results to PostgreSQL with status = 'awaiting_human'. An SSE event of type 'hitl' is pushed to the frontend with all findings, scores, and the judge recommendation. The reviewer submits their decision via POST /validate/v2/{id}/decide, which updates the DB row directly. V1 used LangGraph interrupt()/Command(resume=...) with PostgresCheckpointer; V2 replaces this with a simple DB state machine.",
   },
   {
     color: "bg-green-600",
@@ -559,7 +559,7 @@ function RagArchitecture() {
   );
 }
 
-/* ── LangGraph State Management section ──────────────────────────────── */
+/* ── State Management section (V2 simplified HITL) ───────────────────── */
 
 function StateManagement() {
   return (
@@ -599,8 +599,8 @@ function StateManagement() {
         <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
           <div className="font-semibold text-gray-800 text-[11px] uppercase tracking-wide">Simplified HITL Flow</div>
           <div className="text-gray-600 leading-relaxed">
-            Unlike LangGraph&rsquo;s <span className="font-mono text-gray-500">interrupt()</span> + <span className="font-mono text-gray-500">Command(resume=...)</span>,
-            the V2 HITL is a simple database state transition:
+            <span className="font-semibold text-gray-500">V1</span> used LangGraph&rsquo;s <span className="font-mono text-gray-500">interrupt()</span> + <span className="font-mono text-gray-500">Command(resume=...)</span> with PostgresCheckpointer.
+            <span className="font-semibold text-amber-700">V2</span> replaces this with a simple database state transition:
           </div>
           <div className="space-y-1.5">
             <div className="flex items-start gap-2">
@@ -942,23 +942,150 @@ function RagasEvaluation() {
   );
 }
 
+/* ── V1 vs V2 Architecture Comparison ──────────────────────────────── */
+
+function ArchitectureComparison() {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+      <div className="text-center">
+        <h3 className="text-sm font-bold text-gray-900">Architecture Evolution</h3>
+        <p className="text-[10px] text-gray-500 mt-0.5">How the validation pipeline evolved from a fixed state machine to an agentic system</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* V1 — LangGraph */}
+        <div className="rounded-xl border-2 border-gray-300 bg-gray-50/50 p-4 space-y-3 relative">
+          <div className="absolute -top-2.5 left-4">
+            <span className="bg-gray-500 text-white text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">V1 &mdash; LangGraph</span>
+          </div>
+
+          <div className="text-xs text-gray-500 leading-relaxed mt-1">
+            Fixed 13-node state machine. Every URL runs the same nodes in the same order. No ability to skip, re-run, or adapt.
+          </div>
+
+          {/* V1 flow */}
+          <div className="space-y-1.5">
+            {[
+              { label: "URL Input", color: "bg-gray-400" },
+              { label: "Web Scraper", color: "bg-gray-400" },
+              { label: "Deterministic Triage Router", color: "bg-gray-400", note: "Fixed if/else routing" },
+              { label: "Load Rules (per agent)", color: "bg-gray-400" },
+              { label: "5 Validator Agents (sequential)", color: "bg-gray-400", note: "Always runs all 5" },
+              { label: "Score Aggregator Node", color: "bg-gray-400" },
+              { label: "Judge Agent (separate LLM call)", color: "bg-gray-400" },
+              { label: "LangGraph interrupt()", color: "bg-gray-400", note: "Suspended graph checkpoint" },
+              { label: "Command(resume=...)", color: "bg-gray-400", note: "PostgresCheckpointer" },
+            ].map((step) => (
+              <div key={step.label} className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${step.color} flex-shrink-0`} />
+                <span className="text-gray-600 text-[11px]">{step.label}</span>
+                {step.note && <span className="text-gray-400 text-[9px] font-mono ml-auto">{step.note}</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* V1 characteristics */}
+          <div className="border-t border-gray-200 pt-2 space-y-1">
+            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Characteristics</div>
+            {[
+              "Deterministic — same path every time",
+              "All validators always run (no skipping)",
+              "Sequential execution only",
+              "Separate LLM call for judge",
+              "Complex checkpoint serialization for HITL",
+              "LangGraph + PostgresCheckpointer dependency",
+            ].map((c) => (
+              <div key={c} className="flex items-start gap-1.5 text-[10px] text-gray-500">
+                <span className="text-gray-400 mt-0.5">&#x2022;</span>
+                <span>{c}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* V2 — MCP + Claude Orchestrator */}
+        <div className="rounded-xl border-2 border-indigo-300 bg-gradient-to-b from-indigo-50/30 to-purple-50/30 p-4 space-y-3 relative">
+          <div className="absolute -top-2.5 left-4">
+            <span className="bg-indigo-600 text-white text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">V2 &mdash; MCP + Claude Agent</span>
+          </div>
+
+          <div className="text-xs text-indigo-700 leading-relaxed mt-1">
+            Agentic orchestrator. Claude dynamically decides which tools to call, can batch them in parallel, skip irrelevant ones, and re-run checks.
+          </div>
+
+          {/* V2 flow */}
+          <div className="space-y-1.5">
+            {[
+              { label: "URL Input", color: "bg-blue-600" },
+              { label: "MCP: scrape_url", color: "bg-cyan-600" },
+              { label: "Claude Orchestrator (dynamic reasoning)", color: "bg-purple-600", note: "AI decides next step" },
+              { label: "MCP: load_rules + retrieve_refs", color: "bg-cyan-600", note: "Batched in parallel" },
+              { label: "MCP: validate_* (selected subset)", color: "bg-indigo-600", note: "Parallel via asyncio.gather" },
+              { label: "Claude Judge (same agent loop)", color: "bg-fuchsia-600", note: "No extra LLM call" },
+              { label: "DB: status = 'awaiting_human'", color: "bg-amber-500", note: "Simple row update" },
+              { label: "POST /decide → DB update → done", color: "bg-green-600", note: "No checkpoint needed" },
+            ].map((step) => (
+              <div key={step.label} className="flex items-center gap-2">
+                <span className={`w-1.5 h-1.5 rounded-full ${step.color} flex-shrink-0`} />
+                <span className="text-gray-700 text-[11px] font-medium">{step.label}</span>
+                {step.note && <span className="text-indigo-400 text-[9px] font-mono ml-auto">{step.note}</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* V2 characteristics */}
+          <div className="border-t border-indigo-200 pt-2 space-y-1">
+            <div className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wide">Improvements</div>
+            {[
+              "Agentic — Claude reasons about what to do",
+              "Skips irrelevant validators dynamically",
+              "Parallel tool execution (asyncio.gather)",
+              "Judge built into same agent loop (no extra call)",
+              "Simple DB state machine for HITL",
+              "MCP makes tools reusable by external clients",
+            ].map((c) => (
+              <div key={c} className="flex items-start gap-1.5 text-[10px] text-indigo-700">
+                <span className="text-green-500 mt-0.5">&#x2713;</span>
+                <span>{c}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Key differences callout */}
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="rounded-lg border border-gray-200 bg-white p-3 text-center">
+          <div className="text-lg font-bold text-gray-400 line-through">13</div>
+          <div className="text-lg font-bold text-indigo-600">&rarr; 8</div>
+          <div className="text-gray-500 text-[10px]">Fixed nodes &rarr; Composable MCP tools</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-3 text-center">
+          <div className="text-lg font-bold text-gray-400 line-through">Sequential</div>
+          <div className="text-lg font-bold text-indigo-600">&rarr; Parallel</div>
+          <div className="text-gray-500 text-[10px]">Validators run concurrently via asyncio.gather</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-3 text-center">
+          <div className="text-lg font-bold text-gray-400 line-through">Checkpoint</div>
+          <div className="text-lg font-bold text-indigo-600">&rarr; DB Row</div>
+          <div className="text-gray-500 text-[10px]">HITL via simple Postgres status column</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main export ─────────────────────────────────────────────────────── */
 
 export function PipelineDiagram() {
   return (
     <div className="space-y-6 text-xs">
-      {/* Section: Pipeline Flow */}
-      <SectionTitle>Pipeline Flow &mdash; MCP + Claude Orchestrator Agent</SectionTitle>
+      {/* Section: V1 vs V2 Architecture Comparison */}
+      <SectionTitle>Architecture: V1 (LangGraph) vs V2 (MCP + Claude Agent)</SectionTitle>
+      <ArchitectureComparison />
 
-      {/* Architecture overview banner */}
-      <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 p-4 text-xs text-gray-700 leading-relaxed">
-        <div className="font-semibold text-indigo-800 text-[11px] uppercase tracking-wide mb-1.5">V2 Architecture: Agentic MCP Pipeline</div>
-        The orchestrator is a <span className="font-semibold text-indigo-700">Claude Sonnet tool-use loop</span> that dynamically reasons about
-        which validation tools to call, in what order, and how to interpret results. Tools are exposed via
-        <span className="font-semibold text-purple-700"> MCP (Model Context Protocol)</span> &mdash; making them composable and
-        independently callable. Unlike the previous fixed LangGraph state machine, the agent can skip irrelevant validators,
-        re-run checks, and adjust strategy based on content type.
-      </div>
+      {/* Section: Pipeline Flow */}
+      <SectionTitle>V2 Pipeline Flow &mdash; MCP + Claude Orchestrator Agent</SectionTitle>
 
       {/* Row 1 — 3-layer architecture */}
       <div className="flex items-center justify-center gap-4">
