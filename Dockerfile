@@ -20,12 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Python dependencies — install CPU-only torch first to avoid pulling CUDA (~800MB)
+# Python dependencies
 COPY backend/requirements.txt ./backend/
-RUN pip install --no-cache-dir \
-        torch==2.3.1+cpu \
-        --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r ./backend/requirements.txt
+RUN pip install --no-cache-dir -r ./backend/requirements.txt
 
 # Backend source (no venv needed — system Python)
 COPY backend ./backend
