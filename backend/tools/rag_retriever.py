@@ -6,7 +6,7 @@ The new package requires a psycopg3 URI: postgresql+psycopg://...
 """
 
 from langchain_postgres import PGVector
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from config.settings import settings
 
 COLLECTION_NAME = "mayo_medical_knowledge"
@@ -19,9 +19,8 @@ def get_retriever(k: int = 5):
     MMR (Maximal Marginal Relevance) balances relevance with diversity in results,
     reducing repetition when multiple chunks from the same document are retrieved.
     """
-    embeddings = OpenAIEmbeddings(
-        model="text-embedding-3-small",
-        openai_api_key=settings.OPENAI_API_KEY,
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
     )
     store = PGVector(
         embeddings=embeddings,
