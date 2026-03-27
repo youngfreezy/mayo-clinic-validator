@@ -23,6 +23,8 @@ import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
+import psycopg
+
 from moltbook.client import MoltbookClient, RateLimitError
 from moltbook.sanitize import sanitize
 from moltbook.feedback_loop import process_post_engagement
