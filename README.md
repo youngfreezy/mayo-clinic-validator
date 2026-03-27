@@ -4,6 +4,7 @@ emoji: 🏥
 colorFrom: blue
 colorTo: indigo
 sdk: docker
+app_port: 7860
 pinned: false
 hf_oauth: true
 hf_oauth_expiration_minutes: 480
