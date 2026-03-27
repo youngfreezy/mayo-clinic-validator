@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 
 from langchain_postgres import PGVector
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from config.settings import settings
@@ -51,7 +51,10 @@ def seed_knowledge_base() -> None:
 
     print(f"Created {len(docs)} chunks from {len(KNOWLEDGE_BASE)} knowledge base entries")
 
-    embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+    embeddings = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        openai_api_key=settings.OPENAI_API_KEY,
+    )
 
     print("Uploading to PGVector (this may take ~30 seconds)...")
     PGVector.from_documents(
